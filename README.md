@@ -40,9 +40,15 @@ The app is not sandboxed: it has to accept incoming connections on the chosen po
 
 ## Use
 
-1. Open Settings and choose the protocol, port, slug, and key.
-2. Copy the publish URL shown in the main window into the encoder.
-3. Start the stream. The window goes on air, and Record becomes available.
+1. Copy MediaFlowRX to Applications, then clear the download quarantine so macOS will open it:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/MediaFlowRX.app
+   ```
+
+2. Open Settings and choose the protocol, port, slug, and key.
+3. Copy the publish URL shown in the main window into the encoder.
+4. Start the stream. The window goes on air, and Record becomes available.
 
 RTMP, for OBS: server `rtmp://<mac>:1935/live`, stream key `stream`.
 
