@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.hmap
+*.dSYM
+*.dSYM.zip
+
+# Clone e build di ZLMediaKit (scripts/build-zlm.sh)
+third_party/
+
+# DMG (scripts/make-dmg.sh)
+dist/

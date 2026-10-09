@@ -1,0 +1,1023 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "—" : {
+
+    },
+    "%lld bit" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld bit"
+          }
+        }
+      }
+    },
+    "%lld channels" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld canali"
+          }
+        }
+      }
+    },
+    "%lld fps" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld fps"
+          }
+        }
+      }
+    },
+    "%lld frames" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld frame"
+          }
+        }
+      }
+    },
+    "%lld s" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld s"
+          }
+        }
+      }
+    },
+    "1 s" : {
+
+    },
+    "120 s" : {
+
+    },
+    "All applied" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tutto applicato"
+          }
+        }
+      }
+    },
+    "Apply" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applica"
+          }
+        }
+      }
+    },
+    "Audio" : {
+
+    },
+    "Authentication" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autenticazione"
+          }
+        }
+      }
+    },
+    "Available when a stream is coming in" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disponibile quando c’è un flusso"
+          }
+        }
+      }
+    },
+    "Between 1 and 65535" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tra 1 e 65535"
+          }
+        }
+      }
+    },
+    "Bit depth" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profondità"
+          }
+        }
+      }
+    },
+    "Bitrate" : {
+
+    },
+    "Cancel" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulla"
+          }
+        }
+      }
+    },
+    "Changes not applied yet" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifiche non ancora applicate"
+          }
+        }
+      }
+    },
+    "Channels" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Canali"
+          }
+        }
+      }
+    },
+    "Choose" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli…"
+          }
+        }
+      }
+    },
+    "Click a value to copy it" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clicca un valore per copiarlo"
+          }
+        }
+      }
+    },
+    "Click to copy: %@" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clicca per copiare: %@"
+          }
+        }
+      }
+    },
+    "Codec" : {
+
+    },
+    "Connected for" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connesso da"
+          }
+        }
+      }
+    },
+    "Could not open port %@" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile aprire la porta %@"
+          }
+        }
+      }
+    },
+    "Credentials" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Credenziali"
+          }
+        }
+      }
+    },
+    "Default" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predefinita"
+          }
+        }
+      }
+    },
+    "Defaults" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predefiniti"
+          }
+        }
+      }
+    },
+    "Encoder" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoder"
+          }
+        }
+      }
+    },
+    "English" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "English"
+          }
+        }
+      }
+    },
+    "Folder" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cartella"
+          }
+        }
+      }
+    },
+    "For encoders that publish over RTSP. OBS does not publish RTSP." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per gli encoder che pubblicano in RTSP. OBS non pubblica in RTSP."
+          }
+        }
+      }
+    },
+    "Frame rate" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fotogrammi"
+          }
+        }
+      }
+    },
+    "General" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generali"
+          }
+        }
+      }
+    },
+    "GOP" : {
+
+    },
+    "Hide addresses" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nascondi gli indirizzi"
+          }
+        }
+      }
+    },
+    "Hide stream details" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nascondi i dettagli del flusso"
+          }
+        }
+      }
+    },
+    "If the encoder drops, the file stays open for this long. If it returns in time, recording continues." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se l’encoder cade, il file resta aperto per questo tempo. Se torna in tempo, la registrazione continua."
+          }
+        }
+      }
+    },
+    "Incoming video and audio details" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dettagli di video e audio in ingresso"
+          }
+        }
+      }
+    },
+    "Info" : {
+
+    },
+    "Interruptions" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interruzioni"
+          }
+        }
+      }
+    },
+    "Invalid characters" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caratteri non ammessi"
+          }
+        }
+      }
+    },
+    "Italian" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Italiano"
+          }
+        }
+      }
+    },
+    "Jitter" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jitter"
+          }
+        }
+      }
+    },
+    "Key" : {
+
+    },
+    "Language" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lingua"
+          }
+        }
+      }
+    },
+    "Level" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Livello"
+          }
+        }
+      }
+    },
+    "Listening" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In ascolto"
+          }
+        }
+      }
+    },
+    "Listening did not start" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ascolto non avviato"
+          }
+        }
+      }
+    },
+    "live" : {
+
+    },
+    "Local" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locale"
+          }
+        }
+      }
+    },
+    "MediaFlowRX" : {
+
+    },
+    "Mono" : {
+
+    },
+    "More tolerant of unstable networks. Slug and key travel in the streamid, without encryption." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Più tollerante con reti instabili. Slug e key viaggiano nello streamid, senza cifratura."
+          }
+        }
+      }
+    },
+    "Mute audio (⇧⌘M)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Silenzia l’audio (⇧⌘M)"
+          }
+        }
+      }
+    },
+    "Mute or unmute audio" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muta o riattiva audio"
+          }
+        }
+      }
+    },
+    "No signal" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segnale assente"
+          }
+        }
+      }
+    },
+    "No stream to record" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun flusso da registrare"
+          }
+        }
+      }
+    },
+    "On air" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In onda"
+          }
+        }
+      }
+    },
+    "On RTMP they are added to the URL query. Fill them in only if the server requires them." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su RTMP finiscono nella query dell’URL. Compilali solo se il server li richiede."
+          }
+        }
+      }
+    },
+    "optional" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "facoltativo"
+          }
+        }
+      }
+    },
+    "Other" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Altro"
+          }
+        }
+      }
+    },
+    "Password" : {
+
+    },
+    "Paste into the encoder" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da incollare nell’encoder"
+          }
+        }
+      }
+    },
+    "Path" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Percorso"
+          }
+        }
+      }
+    },
+    "Point the encoder at the address in the bar below" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Punta l’encoder all’indirizzo della barra in basso"
+          }
+        }
+      }
+    },
+    "Port" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porta"
+          }
+        }
+      }
+    },
+    "Port %@" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porta %@"
+          }
+        }
+      }
+    },
+    "Ports below 1024 require an administrator" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sotto la 1024 serve l’amministratore"
+          }
+        }
+      }
+    },
+    "Ports must be between 1 and 65535" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le porte devono stare tra 1 e 65535"
+          }
+        }
+      }
+    },
+    "Profile" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profilo"
+          }
+        }
+      }
+    },
+    "Protocol" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Protocollo"
+          }
+        }
+      }
+    },
+    "Publish" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pubblicazione"
+          }
+        }
+      }
+    },
+    "Received" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ricevuti"
+          }
+        }
+      }
+    },
+    "Record" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registra"
+          }
+        }
+      }
+    },
+    "Recording" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registrazione"
+          }
+        }
+      }
+    },
+    "Recording did not start" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registrazione non avviata"
+          }
+        }
+      }
+    },
+    "Recording file" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File in registrazione"
+          }
+        }
+      }
+    },
+    "Recording now" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In registrazione"
+          }
+        }
+      }
+    },
+    "Relaunch" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riavvia"
+          }
+        }
+      }
+    },
+    "Resolution" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Risoluzione"
+          }
+        }
+      }
+    },
+    "Sample rate" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Campionamento"
+          }
+        }
+      }
+    },
+    "Server" : {
+
+    },
+    "Show addresses for the encoder" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra gli indirizzi per l’encoder"
+          }
+        }
+      }
+    },
+    "Show in Finder" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra nel Finder"
+          }
+        }
+      }
+    },
+    "Signal dropped, closing in %lld s" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Segnale interrotto, chiusura tra %lld s"
+          }
+        }
+      }
+    },
+    "Slug" : {
+
+    },
+    "Slug and key identify the stream. Allowed: letters, numbers, dot, hyphen and underscore. One encoder at a time." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slug e key identificano il flusso. Ammessi: lettere, numeri, punto, trattino e underscore. Un solo encoder alla volta."
+          }
+        }
+      }
+    },
+    "Slug and key may only contain letters, numbers, dot, hyphen and underscore" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slug e key usano solo lettere, numeri, punto, trattino e underscore"
+          }
+        }
+      }
+    },
+    "Slug, key and port are required" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slug, key e porta sono obbligatori"
+          }
+        }
+      }
+    },
+    "Source" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorgente"
+          }
+        }
+      }
+    },
+    "SRT does not use a user and password: access is only the slug and key." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SRT non usa user e password: l’accesso passa solo da slug e key."
+          }
+        }
+      }
+    },
+    "Start" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avvio"
+          }
+        }
+      }
+    },
+    "Start or stop recording" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avvia o ferma registrazione"
+          }
+        }
+      }
+    },
+    "Start or stop recording (⌘R)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avvia o ferma la registrazione (⌘R)"
+          }
+        }
+      }
+    },
+    "Start recording when the signal arrives" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Registra appena arriva il segnale"
+          }
+        }
+      }
+    },
+    "Stereo" : {
+
+    },
+    "stream" : {
+
+    },
+    "Stream ID" : {
+
+    },
+    "Stream key" : {
+
+    },
+    "System" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sistema"
+          }
+        }
+      }
+    },
+    "The current stream will be interrupted" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il flusso in corso verrà interrotto"
+          }
+        }
+      }
+    },
+    "The language applies the next time the app opens." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La lingua si applica alla prossima apertura dell’app."
+          }
+        }
+      }
+    },
+    "The most common choice: OBS and most encoders. One stream at a time." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il più diffuso: OBS e la maggior parte degli encoder. Un solo flusso alla volta."
+          }
+        }
+      }
+    },
+    "These are the RTSP credentials (digest). Empty means open publishing on the path." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sono l’autenticazione RTSP (digest). Vuoti significa pubblicazione aperta sul path."
+          }
+        }
+      }
+    },
+    "Tolerance" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tolleranza"
+          }
+        }
+      }
+    },
+    "Unmute" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Audio"
+          }
+        }
+      }
+    },
+    "Unmute audio (⇧⌘M)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riattiva l’audio (⇧⌘M)"
+          }
+        }
+      }
+    },
+    "URL" : {
+
+    },
+    "User" : {
+
+    },
+    "Video" : {
+
+    },
+    "Video gaps" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salti video"
+          }
+        }
+      }
+    },
+    "Waiting for the encoder" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In attesa dell’encoder"
+          }
+        }
+      }
+    },
+    "Waiting for the stream" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In attesa del flusso"
+          }
+        }
+      }
+    },
+    "When the stream is live, the file starts on its own. Record and Stop stay available in the main window." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Con il flusso in onda il file parte da solo. Registra e Stop restano sempre disponibili dalla finestra."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
