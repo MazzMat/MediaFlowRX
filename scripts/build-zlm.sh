@@ -11,6 +11,11 @@ if [ ! -d "$SRC/.git" ]; then
   git -C "$SRC" submodule sync
   git -C "$SRC" submodule update --init --depth 1 -- 3rdpart/ZLToolKit 3rdpart/media-server 3rdpart/jsoncpp
 fi
+# Una cache CMake già configurata per una sola architettura non diventa universal da sola.
+CACHE="$SRC/build/CMakeCache.txt"
+if [ -f "$CACHE" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES:STRING=arm64;x86_64' "$CACHE"; then
+  rm -rf "$SRC/build"
+fi
 cmake -S "$SRC" -B "$SRC/build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_WEBRTC=OFF \
@@ -25,7 +30,7 @@ cmake -S "$SRC" -B "$SRC/build" \
   -DENABLE_MP4=ON \
   -DENABLE_HLS=ON \
   -DENABLE_RTPPROXY=ON \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 cmake --build "$SRC/build" --target mk_api -j "$(sysctl -n hw.ncpu)"
 install_name_tool -id "@rpath/libmk_api.dylib" "$SRC/release/darwin/Release/libmk_api.dylib"
