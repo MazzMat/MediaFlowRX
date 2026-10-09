@@ -15,3 +15,6 @@ third_party/
 
 # DMG (scripts/make-dmg.sh)
 dist/
+
+# Note di progetto, restano solo in locale
+plan.md
