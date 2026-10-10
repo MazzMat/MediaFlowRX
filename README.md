@@ -5,13 +5,15 @@ Native macOS app that receives one live stream published by an encoder, previews
 The encoder pushes to the Mac. MediaFlowRX does not pull from a camera.
 
 <p align="center">
-  <img src="docs/screenshots/on-air.png" width="780" alt="MediaFlowRX on air, recording an RTMP stream">
+  <img src="docs/screenshots/on-air-v1.1.png" width="780" alt="MediaFlowRX on air, recording an RTMP stream">
 </p>
 <p align="center">
   <img src="docs/screenshots/waiting.png" width="780" alt="Waiting for the encoder">
 </p>
 <p align="center">
-  <img src="docs/screenshots/preferences.png" width="480" alt="Settings: protocol, port, and the URL to paste into the encoder">
+  <img src="docs/screenshots/preferences1.png" width="260" alt="Settings: General, with closed captions options">
+  <img src="docs/screenshots/preferences2.png" width="260" alt="Settings: Server, with protocol, port, and the URL to paste into the encoder">
+  <img src="docs/screenshots/preferences3.png" width="260" alt="Settings: Recording, with folder and SRT captions options">
 </p>
 
 ## Features
