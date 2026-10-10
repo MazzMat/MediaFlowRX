@@ -10,15 +10,16 @@ struct PublishLine: Identifiable {
     static func make(_ connection: ConnectionConfig, hosts: [String]) -> [PublishLine] {
         switch connection.kind {
         case .rtmp:
+            // ZLMediaKit drops the query from the server URL (tcUrl) and reads it only from the stream key.
             let query = credentialQuery(connection)
             return hosts.map { host in
                 PublishLine(
                     label: host == "127.0.0.1" ? String(localized: "Local") : String(localized: "Server"),
-                    value: "rtmp://\(host):\(connection.rtmpPort)/\(connection.slug)\(query)"
+                    value: "rtmp://\(host):\(connection.rtmpPort)/\(connection.slug)"
                 )
-            } + [PublishLine(label: String(localized: "Stream key"), value: connection.streamKey)]
+            } + [PublishLine(label: String(localized: "Stream key"), value: "\(connection.streamKey)\(query)")]
         case .srt:
-            let streamID = "#!::r=\(connection.slug)/\(connection.streamKey),m=publish"
+            let streamID = "#!::r=\(connection.slug)/\(connection.streamKey),m=publish\(streamIDCredentials(connection))"
             return hosts.map { host in
                 PublishLine(
                     label: host == "127.0.0.1" ? String(localized: "Local") : String(localized: "Server"),
@@ -26,11 +27,11 @@ struct PublishLine: Identifiable {
                 )
             } + [PublishLine(label: String(localized: "Stream ID"), value: streamID)]
         case .rtsp:
-            let user = credentialPrefix(connection)
+            let query = credentialQuery(connection)
             return hosts.map { host in
                 PublishLine(
                     label: host == "127.0.0.1" ? String(localized: "Local") : String(localized: "URL"),
-                    value: "rtsp://\(user)\(host):\(connection.rtspPort)/\(connection.slug)/\(connection.streamKey)"
+                    value: "rtsp://\(host):\(connection.rtspPort)/\(connection.slug)/\(connection.streamKey)\(query)"
                 )
             }
         }
@@ -75,16 +76,22 @@ struct PublishLine: Identifiable {
 
     private static func credentialQuery(_ connection: ConnectionConfig) -> String {
         guard !connection.username.isEmpty || !connection.password.isEmpty else { return "" }
-        let user = connection.username.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let pass = connection.password.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // The engine splits on & and =, and reads + as a space: those must stay encoded.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+#")
+        let user = connection.username.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let pass = connection.password.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
         return "?user=\(user)&pass=\(pass)"
     }
 
-    private static func credentialPrefix(_ connection: ConnectionConfig) -> String {
+    /// The streamid separates fields with commas, so those are percent-encoded too.
+    private static func streamIDCredentials(_ connection: ConnectionConfig) -> String {
         guard !connection.username.isEmpty || !connection.password.isEmpty else { return "" }
-        let user = connection.username.addingPercentEncoding(withAllowedCharacters: .urlUserAllowed) ?? ""
-        let pass = connection.password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? ""
-        return "\(user):\(pass)@"
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ",=&")
+        let user = connection.username.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let pass = connection.password.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        return ",user=\(user),pass=\(pass)"
     }
 }
 

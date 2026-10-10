@@ -522,12 +522,32 @@
         }
       }
     },
-    "On RTMP they are added to the URL query. Fill them in only if the server requires them." : {
+    "On RTMP they are added to the stream key. Optional: when both are empty, the slug and key are enough." : {
       "localizations" : {
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Su RTMP finiscono nella query dell’URL. Compilali solo se il server li richiede."
+            "value" : "Su RTMP finiscono nella stream key. Facoltativi: se sono entrambi vuoti bastano slug e key."
+          }
+        }
+      }
+    },
+    "On RTSP they are added to the URL query. Optional: when both are empty, the slug and key are enough." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su RTSP finiscono nella query dell’URL. Facoltativi: se sono entrambi vuoti bastano slug e key."
+          }
+        }
+      }
+    },
+    "On SRT they are added to the streamid. Optional: when both are empty, the slug and key are enough." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su SRT finiscono nello streamid. Facoltativi: se sono entrambi vuoti bastano slug e key."
           }
         }
       }
@@ -823,16 +843,6 @@
         }
       }
     },
-    "SRT does not use a user and password: access is only the slug and key." : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SRT non usa user e password: l’accesso passa solo da slug e key."
-          }
-        }
-      }
-    },
     "Start" : {
       "localizations" : {
         "it" : {
@@ -922,16 +932,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il più diffuso: OBS e la maggior parte degli encoder. Un solo flusso alla volta."
-          }
-        }
-      }
-    },
-    "These are the RTSP credentials (digest). Empty means open publishing on the path." : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sono l’autenticazione RTSP (digest). Vuoti significa pubblicazione aperta sul path."
           }
         }
       }

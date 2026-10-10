@@ -22,9 +22,10 @@ final class IngestEngine {
     private(set) var countdown = 0
     private(set) var streamInfo = StreamInfo()
     var muted = false {
-        didSet { preview.isMuted = muted }
+        didSet { preview.setMuted(muted) }
     }
-    let preview = PreviewPlayer()
+    /// Fed straight from the engine thread: frames never wait for the main thread.
+    nonisolated let preview = PreviewPlayer()
 
     private var settings: AppSettings?
     private var started = false
@@ -63,8 +64,61 @@ final class IngestEngine {
             RunLoop.main.add(timer, forMode: .common)
             ticker = timer
         }
+        // Only at launch: later, a file still closing could be moved from under the engine.
+        Self.recoverInterruptedRecordings(in: settings.recordingFolder)
         apply(settings)
         started = true
+    }
+
+    /// A crash leaves the file in progress hidden in the engine's subfolders. Fragmented MP4 keeps it
+    /// playable, so it is moved next to the other recordings as `{slug}_{date}_recovered.mp4`.
+    private static func recoverInterruptedRecordings(in root: URL) {
+        let manager = FileManager.default
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .creationDateKey, .fileSizeKey]
+        for base in [root.appending(path: "record"), root.appending(path: "__defaultVhost__/record")] {
+            guard let items = manager.enumerator(at: base, includingPropertiesForKeys: keys) else { continue }
+            var files: [URL] = []
+            var folders: [URL] = []
+            for case let url as URL in items {
+                let values = try? url.resourceValues(forKeys: Set(keys))
+                if values?.isDirectory == true {
+                    folders.append(url)
+                } else if values?.isRegularFile == true, url.lastPathComponent.hasPrefix("."), url.pathExtension == "mp4" {
+                    files.append(url)
+                }
+            }
+            for file in files {
+                let values = try? file.resourceValues(forKeys: Set(keys))
+                if values?.fileSize == 0 {
+                    try? manager.removeItem(at: file)
+                    continue
+                }
+                // The engine writes to record/{slug}/{key}/{day}/.{time}.mp4. The enumerator may return
+                // the path with symlinks resolved (/private/tmp), so the slug comes from the components.
+                let parts = file.pathComponents
+                let slug = parts.lastIndex(of: "record").flatMap { $0 + 1 < parts.count - 1 ? parts[$0 + 1] : nil } ?? "recording"
+                let stem = "\(slug)_\(formatter.string(from: values?.creationDate ?? Date()))_recovered"
+                var destination = root.appending(path: "\(stem).mp4")
+                var number = 2
+                while manager.fileExists(atPath: destination.path) {
+                    destination = root.appending(path: "\(stem)-\(number).mp4")
+                    number += 1
+                }
+                try? manager.moveItem(at: file, to: destination)
+            }
+            for folder in ([base] + folders).sorted(by: { $0.path.count > $1.path.count }) {
+                if (try? manager.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+                    try? manager.removeItem(at: folder)
+                }
+            }
+        }
+        let vhost = root.appending(path: "__defaultVhost__")
+        if (try? manager.contentsOfDirectory(atPath: vhost.path))?.isEmpty == true {
+            try? manager.removeItem(at: vhost)
+        }
     }
 
     func apply(_ settings: AppSettings) {
@@ -137,21 +191,14 @@ final class IngestEngine {
             refreshStatus()
             return
         }
-        guard hasSource, !sessionClosedByTimeout || phase == .live else {
-            if hasSource {
-                sessionClosedByTimeout = false
-                phase = .live
-                suppressed = false
-                beginRecording()
-            }
-            return
-        }
+        // A session closed by the timeout has no signal: recording resumes only when frames return.
+        guard hasSource, !sessionClosedByTimeout else { return }
         suppressed = false
         beginRecording()
     }
 
     var recordEnabled: Bool {
-        hasSource
+        isRecording || (hasSource && !sessionClosedByTimeout)
     }
 
     func shutdown() {
@@ -196,7 +243,6 @@ final class IngestEngine {
         if !hasSource { hasSource = true }
         if phase != .live { phase = .live }
         noteStream(packet)
-        preview.consume(packet)
         if resumed, settings?.autoRecord == true, !suppressed, !isRecording {
             beginRecording()
         } else if resumed {
@@ -488,18 +534,21 @@ struct StreamInfo: Equatable {
     }
 }
 
+// The engine calls these from its own threads. They hop to the main thread with
+// DispatchQueue.main, which keeps the order in which events were sent: a Task does not promise it.
+
 @_cdecl("mfrx_swift_on_state")
-func mfrxSwiftOnState(_ ctx: UnsafeMutableRawPointer?, _ state: Int32) {
+nonisolated func mfrxSwiftOnState(_ ctx: UnsafeMutableRawPointer?, _ state: Int32) {
     guard let ctx else { return }
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
     let present = state != 0
-    Task { @MainActor in
+    DispatchQueue.main.async {
         engine.applySource(present)
     }
 }
 
 @_cdecl("mfrx_swift_on_frame")
-func mfrxSwiftOnFrame(_ ctx: UnsafeMutableRawPointer?, _ frame: UnsafePointer<mfrx_frame>?) {
+nonisolated func mfrxSwiftOnFrame(_ ctx: UnsafeMutableRawPointer?, _ frame: UnsafePointer<mfrx_frame>?) {
     guard let ctx, let frame else { return }
     let raw = frame.pointee
     guard let dataPointer = raw.data, raw.size > 0 else { return }
@@ -523,27 +572,28 @@ func mfrxSwiftOnFrame(_ ctx: UnsafeMutableRawPointer?, _ frame: UnsafePointer<mf
         arrival: ProcessInfo.processInfo.systemUptime
     )
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
-    Task { @MainActor in
+    engine.preview.consume(packet)
+    DispatchQueue.main.async {
         engine.applyFrame(packet)
     }
 }
 
 @_cdecl("mfrx_swift_on_file")
-func mfrxSwiftOnFile(_ ctx: UnsafeMutableRawPointer?, _ path: UnsafePointer<CChar>?) {
+nonisolated func mfrxSwiftOnFile(_ ctx: UnsafeMutableRawPointer?, _ path: UnsafePointer<CChar>?) {
     guard let ctx, let path else { return }
     let file = String(cString: path)
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
-    Task { @MainActor in
+    DispatchQueue.main.async {
         engine.applyFile(file)
     }
 }
 
 @_cdecl("mfrx_swift_on_error")
-func mfrxSwiftOnError(_ ctx: UnsafeMutableRawPointer?, _ message: UnsafePointer<CChar>?) {
+nonisolated func mfrxSwiftOnError(_ ctx: UnsafeMutableRawPointer?, _ message: UnsafePointer<CChar>?) {
     guard let ctx, let message else { return }
     let text = String(cString: message)
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
-    Task { @MainActor in
+    DispatchQueue.main.async {
         engine.applyError(text)
     }
 }

@@ -325,9 +325,9 @@ private extension IngestKind {
 
     var credentialsHint: String {
         switch self {
-        case .rtmp: String(localized: "On RTMP they are added to the URL query. Fill them in only if the server requires them.")
-        case .srt: String(localized: "SRT does not use a user and password: access is only the slug and key.")
-        case .rtsp: String(localized: "These are the RTSP credentials (digest). Empty means open publishing on the path.")
+        case .rtmp: String(localized: "On RTMP they are added to the stream key. Optional: when both are empty, the slug and key are enough.")
+        case .srt: String(localized: "On SRT they are added to the streamid. Optional: when both are empty, the slug and key are enough.")
+        case .rtsp: String(localized: "On RTSP they are added to the URL query. Optional: when both are empty, the slug and key are enough.")
         }
     }
 }

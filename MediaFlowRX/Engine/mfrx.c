@@ -14,6 +14,7 @@
 #include "mk_track.h"
 #pragma clang diagnostic pop
 
+#include <copyfile.h>
 #include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -31,10 +32,22 @@ static pthread_cond_t g_cv = PTHREAD_COND_INITIALIZER;
 static int g_inited = 0;
 static atomic_int g_running = 0;
 static int g_recording = 0;
-static int g_record_inflight = 0;
+static int g_record_pending = 0;
 static int g_source_count = 0;
-static int g_slice = 0;
 static int64_t g_last_frame_ms = 0;
+
+/// One entry per recording started. A file closes after the next recording may already
+/// have begun, so each file finds its own name and folder through its start time.
+typedef struct {
+    uint64_t started;
+    int slice;
+    char directory[1024];
+    char base[512];
+} RecordSession;
+
+#define MFRX_MAX_SESSIONS 8
+static RecordSession g_sessions[MFRX_MAX_SESSIONS];
+static int g_session_count = 0;
 
 static int g_kind = MFRX_KIND_RTMP;
 static char g_slug[256];
@@ -45,7 +58,6 @@ static char g_vhost[256];
 static char g_app[256];
 static char g_stream[256];
 static char g_record_dir[1024];
-static char g_base_name[512];
 static char g_error[512];
 static char g_peer[128];
 static void *g_ctx = NULL;
@@ -135,14 +147,10 @@ static int query_value(const char *params, const char *key, char *dest, size_t d
     return 0;
 }
 
+/// The same rule on every protocol: user and pass travel as query parameters
+/// (after the RTMP stream key, in the RTSP URL, in the SRT streamid). ZLMediaKit has no RTSP auth for publishing.
 static int credentials_ok(const char *params) {
     if (g_user[0] == '\0' && g_pass[0] == '\0') {
-        return 1;
-    }
-    if (g_kind == MFRX_KIND_SRT) {
-        return 1;
-    }
-    if (g_kind == MFRX_KIND_RTSP) {
         return 1;
     }
     char user[256];
@@ -190,24 +198,30 @@ static void apply_options_with_grace(int grace_ms) {
     option_set("protocol.enable_fmp4", "0");
     option_set("protocol.mp4_max_second", "86400");
     option_set("protocol.mp4_as_player", "0");
-    option_set("record.fastStart", "1");
-    option_set("record.enableFmp4", "0");
+    // Fragmented MP4: every fragment lands on disk, so a crash loses seconds, not the file.
+    option_set("record.fastStart", "0");
+    option_set("record.enableFmp4", "1");
     option_set("general.listen_ip", "0.0.0.0");
     option_set("rtmp.directProxy", "0");
     option_set("rtsp.directProxy", "0");
 }
 
 static void remove_empty_parents(const char *file_path, const char *stop_dir) {
+    char stop[1024];
+    snprintf(stop, sizeof(stop), "%s", stop_dir ? stop_dir : "");
+    size_t stop_len = strlen(stop);
+    while (stop_len > 1 && stop[stop_len - 1] == '/') {
+        stop[--stop_len] = '\0';
+    }
     char dir[1024];
     snprintf(dir, sizeof(dir), "%s", file_path ? file_path : "");
-    size_t stop_len = stop_dir ? strlen(stop_dir) : 0;
     for (;;) {
         char *slash = strrchr(dir, '/');
         if (!slash || slash == dir) {
             break;
         }
         *slash = '\0';
-        if (stop_len == 0 || strcmp(dir, stop_dir) == 0 || strncmp(dir, stop_dir, stop_len) != 0) {
+        if (stop_len == 0 || strcmp(dir, stop) == 0 || strncmp(dir, stop, stop_len) != 0 || dir[stop_len] != '/') {
             break;
         }
         if (rmdir(dir) != 0) {
@@ -223,79 +237,187 @@ static void ensure_dir(const char *path) {
     mkdir(path, 0755);
 }
 
-static void unique_destination(const char *directory, const char *base_name, int slice, char *dest, size_t dest_len) {
-    char candidate[1024];
-    if (slice <= 0) {
-        snprintf(candidate, sizeof(candidate), "%s/%s", directory, base_name);
+static void file_stem(const char *base_name, char *stem, size_t stem_len) {
+    snprintf(stem, stem_len, "%s", base_name);
+    char *dot = strrchr(stem, '.');
+    if (dot) {
+        *dot = '\0';
+    }
+}
+
+/// Number 1 is the bare name, then stem-2.mp4, stem-3.mp4 and so on.
+static void numbered_path(const char *directory, const char *stem, int number, char *dest, size_t dest_len) {
+    if (number <= 1) {
+        snprintf(dest, dest_len, "%s/%s.mp4", directory, stem);
     } else {
-        char stem[512];
-        snprintf(stem, sizeof(stem), "%s", base_name);
-        char *dot = strrchr(stem, '.');
-        if (dot) {
-            *dot = '\0';
-        }
-        snprintf(candidate, sizeof(candidate), "%s/%s-%d.mp4", directory, stem, slice + 1);
+        snprintf(dest, dest_len, "%s/%s-%d.mp4", directory, stem, number);
     }
-    if (access(candidate, F_OK) != 0) {
-        snprintf(dest, dest_len, "%s", candidate);
-        return;
-    }
-    for (int n = 2; n < 1000; n++) {
-        char stem[512];
-        snprintf(stem, sizeof(stem), "%s", base_name);
-        char *dot = strrchr(stem, '.');
-        if (dot) {
-            *dot = '\0';
+}
+
+/// Never overwrites: an existing name only makes the number go up.
+/// Returns 0 when moved, EXDEV when the folder is on another volume, another errno otherwise.
+static int move_exclusive(const char *src, const char *directory, const char *stem, int first, char *dest, size_t dest_len) {
+    for (int n = first; n < first + 1000; n++) {
+        numbered_path(directory, stem, n, dest, dest_len);
+        if (renamex_np(src, dest, RENAME_EXCL) == 0) {
+            return 0;
         }
-        snprintf(candidate, sizeof(candidate), "%s/%s-%d.mp4", directory, stem, n);
-        if (access(candidate, F_OK) != 0) {
-            snprintf(dest, dest_len, "%s", candidate);
-            return;
+        if (errno != EEXIST) {
+            return errno;
         }
     }
-    snprintf(dest, dest_len, "%s", candidate);
+    return EEXIST;
+}
+
+static int copy_exclusive(const char *src, const char *directory, const char *stem, int first, char *dest, size_t dest_len) {
+    for (int n = first; n < first + 1000; n++) {
+        numbered_path(directory, stem, n, dest, dest_len);
+        if (copyfile(src, dest, NULL, COPYFILE_ALL | COPYFILE_EXCL) == 0) {
+            return 0;
+        }
+        int error = errno;
+        if (error != EEXIST) {
+            unlink(dest);
+            return error;
+        }
+    }
+    return EEXIST;
+}
+
+typedef struct {
+    char src[1024];
+    char directory[1024];
+    char stem[512];
+    char cleanup[1024];
+    int first;
+    void *ctx;
+} MoveJob;
+
+/// A copy between volumes can take minutes. It runs here, not on the ZLMediaKit thread that delivers frames.
+static void *move_across_volumes(void *arg) {
+    MoveJob *job = arg;
+    char dest[1024];
+    const char *result = job->src;
+    if (copy_exclusive(job->src, job->directory, job->stem, job->first, dest, sizeof(dest)) == 0) {
+        unlink(job->src);
+        remove_empty_parents(job->src, job->cleanup);
+        result = dest;
+    }
+    if (job->ctx) {
+        mfrx_swift_on_file(job->ctx, result);
+    }
+    free(job);
+    return NULL;
+}
+
+static int start_move_job(const char *src, const char *directory, const char *stem, const char *cleanup, int first, void *ctx) {
+    MoveJob *job = calloc(1, sizeof(MoveJob));
+    if (!job) {
+        return 0;
+    }
+    copy_text(job->src, sizeof(job->src), src);
+    copy_text(job->directory, sizeof(job->directory), directory);
+    copy_text(job->stem, sizeof(job->stem), stem);
+    copy_text(job->cleanup, sizeof(job->cleanup), cleanup);
+    job->first = first;
+    job->ctx = ctx;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t thread;
+    int started = pthread_create(&thread, &attr, move_across_volumes, job) == 0;
+    pthread_attr_destroy(&attr);
+    if (!started) {
+        free(job);
+    }
+    return started;
+}
+
+/// Caller holds g_mu. The latest session that began no later than the file, with a second of slack.
+static RecordSession *session_for(uint64_t file_started) {
+    RecordSession *found = NULL;
+    for (int i = 0; i < g_session_count; i++) {
+        RecordSession *session = &g_sessions[i];
+        if (session->started <= file_started + 1 && (!found || session->started >= found->started)) {
+            found = session;
+        }
+    }
+    if (!found && g_session_count > 0) {
+        found = &g_sessions[g_session_count - 1];
+    }
+    return found;
+}
+
+/// Caller holds g_mu.
+static void push_session(const char *directory) {
+    if (g_session_count == MFRX_MAX_SESSIONS) {
+        memmove(&g_sessions[0], &g_sessions[1], sizeof(RecordSession) * (MFRX_MAX_SESSIONS - 1));
+        g_session_count -= 1;
+    }
+    RecordSession *session = &g_sessions[g_session_count++];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    char when[64];
+    strftime(when, sizeof(when), "%Y-%m-%d_%H-%M-%S", &tm);
+    session->started = (uint64_t)now;
+    session->slice = 0;
+    copy_text(session->directory, sizeof(session->directory), directory);
+    snprintf(session->base, sizeof(session->base), "%s_%s.mp4", g_slug, when);
 }
 
 static void on_record(const mk_record_info info) {
     const char *src = mk_record_info_get_file_path(info);
-    char dest[1024];
+    uint64_t file_started = mk_record_info_get_start_time(info);
     char directory[1024];
-    char base[512];
-    int slice = 0;
-    void *ctx = NULL;
-    dest[0] = '\0';
-    pthread_mutex_lock(&g_mu);
-    snprintf(directory, sizeof(directory), "%s", g_record_dir);
-    snprintf(base, sizeof(base), "%s", g_base_name);
-    slice = g_slice++;
-    ctx = g_ctx;
-    pthread_mutex_unlock(&g_mu);
-    if (src && src[0] && directory[0] && base[0]) {
-        unique_destination(directory, base, slice, dest, sizeof(dest));
-        if (rename(src, dest) == 0) {
-            remove_empty_parents(src, directory);
-        } else {
-            snprintf(dest, sizeof(dest), "%s", src);
-        }
-    }
-    pthread_mutex_lock(&g_mu);
-    if (g_record_inflight) {
-        g_record_inflight = 0;
-        pthread_cond_signal(&g_cv);
-    }
+    char stem[512];
+    char cleanup[1024];
     char vhost[256];
     char app[256];
     char stream[256];
-    snprintf(vhost, sizeof(vhost), "%s", g_vhost);
-    snprintf(app, sizeof(app), "%s", g_app);
-    snprintf(stream, sizeof(stream), "%s", g_stream);
+    int number = 1;
+    void *ctx = NULL;
+    stem[0] = '\0';
+    cleanup[0] = '\0';
+    pthread_mutex_lock(&g_mu);
+    copy_text(directory, sizeof(directory), g_record_dir);
+    RecordSession *session = session_for(file_started);
+    if (session) {
+        file_stem(session->base, stem, sizeof(stem));
+        copy_text(cleanup, sizeof(cleanup), session->directory);
+        session->slice += 1;
+        number = session->slice;
+    }
+    ctx = g_ctx;
+    if (g_record_pending > 0) {
+        g_record_pending -= 1;
+        pthread_cond_broadcast(&g_cv);
+    }
+    copy_text(vhost, sizeof(vhost), g_vhost);
+    copy_text(app, sizeof(app), g_app);
+    copy_text(stream, sizeof(stream), g_stream);
     pthread_mutex_unlock(&g_mu);
     if (vhost[0] == '\0' || app[0] == '\0' || stream[0] == '\0' || !mk_recorder_is_recording(1, vhost, app, stream)) {
         pthread_mutex_lock(&g_mu);
         g_recording = 0;
         pthread_mutex_unlock(&g_mu);
     }
-    if (ctx && dest[0]) {
+    if (!src || src[0] == '\0') {
+        return;
+    }
+    char dest[1024];
+    copy_text(dest, sizeof(dest), src);
+    if (directory[0] && stem[0]) {
+        int moved = move_exclusive(src, directory, stem, number, dest, sizeof(dest));
+        if (moved == 0) {
+            remove_empty_parents(src, cleanup);
+        } else if (moved == EXDEV && start_move_job(src, directory, stem, cleanup, number, ctx)) {
+            return;
+        } else {
+            copy_text(dest, sizeof(dest), src);
+        }
+    }
+    if (ctx) {
         mfrx_swift_on_file(ctx, dest);
     }
 }
@@ -306,15 +428,21 @@ typedef struct {
     int codec;
 } TrackCtx;
 
+/// The delegate owns only its TrackCtx. The track reference lives here, so the
+/// delegate can be removed and the track released when the source goes away.
+/// Holding the reference inside the delegate would keep the track alive forever.
+typedef struct {
+    const void *source;
+    mk_track track;
+    void *tag;
+} TrackBinding;
+
+static TrackBinding *g_bindings = NULL;
+static int g_binding_count = 0;
+static int g_binding_capacity = 0;
+
 static void free_track(void *user_data) {
-    TrackCtx *ctx = user_data;
-    if (!ctx) {
-        return;
-    }
-    if (ctx->track) {
-        mk_track_unref(ctx->track);
-    }
-    free(ctx);
+    free(user_data);
 }
 
 static void on_frame(void *user_data, mk_frame frame) {
@@ -366,9 +494,79 @@ static int codec_of(mk_track track, int *is_video) {
     return MFRX_CODEC_OTHER;
 }
 
+static int store_binding(const void *source, mk_track track, void *tag) {
+    pthread_mutex_lock(&g_mu);
+    if (g_binding_count == g_binding_capacity) {
+        int capacity = g_binding_capacity ? g_binding_capacity * 2 : 8;
+        TrackBinding *grown = realloc(g_bindings, sizeof(TrackBinding) * (size_t)capacity);
+        if (!grown) {
+            pthread_mutex_unlock(&g_mu);
+            return 0;
+        }
+        g_bindings = grown;
+        g_binding_capacity = capacity;
+    }
+    g_bindings[g_binding_count++] = (TrackBinding){ source, track, tag };
+    pthread_mutex_unlock(&g_mu);
+    return 1;
+}
+
+static void bind_tracks(const mk_media_source sender) {
+    int count = mk_media_source_get_track_count(sender);
+    for (int i = 0; i < count; i++) {
+        mk_track track = mk_media_source_get_track(sender, i);
+        if (!track) {
+            continue;
+        }
+        TrackCtx *info = calloc(1, sizeof(TrackCtx));
+        if (!info) {
+            mk_track_unref(track);
+            continue;
+        }
+        info->track = track;
+        info->codec = codec_of(track, &info->is_video);
+        void *tag = mk_track_add_delegate2(track, on_frame, info, free_track);
+        if (!store_binding(sender, track, tag)) {
+            mk_track_del_delegate(track, tag);
+            mk_track_unref(track);
+        }
+    }
+}
+
+static void unbind_tracks(const void *sender) {
+    TrackBinding *removed = NULL;
+    int removed_count = 0;
+    pthread_mutex_lock(&g_mu);
+    int kept = 0;
+    for (int i = 0; i < g_binding_count; i++) {
+        if (g_bindings[i].source != sender) {
+            g_bindings[kept++] = g_bindings[i];
+            continue;
+        }
+        TrackBinding *grown = realloc(removed, sizeof(TrackBinding) * (size_t)(removed_count + 1));
+        if (!grown) {
+            g_bindings[kept++] = g_bindings[i];
+            continue;
+        }
+        removed = grown;
+        removed[removed_count++] = g_bindings[i];
+    }
+    g_binding_count = kept;
+    pthread_mutex_unlock(&g_mu);
+    // The dispatcher locks around delivery, so once the delegate is gone no frame still uses the track.
+    for (int i = 0; i < removed_count; i++) {
+        mk_track_del_delegate(removed[i].track, removed[i].tag);
+        mk_track_unref(removed[i].track);
+    }
+    free(removed);
+}
+
 static void on_media_changed(int regist, const mk_media_source sender) {
     if (!sender) {
         return;
+    }
+    if (!regist) {
+        unbind_tracks(sender);
     }
     const char *schema = mk_media_source_get_schema(sender);
     const char *app = mk_media_source_get_app(sender);
@@ -408,21 +606,7 @@ static void on_media_changed(int regist, const mk_media_source sender) {
     ctx = g_ctx;
     pthread_mutex_unlock(&g_mu);
     if (regist) {
-        int count = mk_media_source_get_track_count(sender);
-        for (int i = 0; i < count; i++) {
-            mk_track track = mk_media_source_get_track(sender, i);
-            if (!track) {
-                continue;
-            }
-            TrackCtx *info = calloc(1, sizeof(TrackCtx));
-            if (!info) {
-                mk_track_unref(track);
-                continue;
-            }
-            info->track = track;
-            info->codec = codec_of(track, &info->is_video);
-            mk_track_add_delegate2(track, on_frame, info, free_track);
-        }
+        bind_tracks(sender);
     }
     if (ctx && atomic_load(&g_running)) {
         mfrx_swift_on_state(ctx, state);
@@ -457,6 +641,8 @@ static void on_publish(const mk_media_info url_info, const mk_publish_auth_invok
     mk_publish_auth_invoker_do(invoker, reject ? reason : NULL, 0, 0);
 }
 
+/// Every player is refused. No RTSP realm is installed on purpose: with a realm,
+/// ZLMediaKit authenticates RTSP players itself and never calls this.
 static void on_play(const mk_media_info url_info, const mk_auth_invoker invoker, const mk_sock_info sender) {
     (void)url_info;
     (void)sender;
@@ -469,39 +655,6 @@ static int on_not_found(const mk_media_info url_info, const mk_sock_info sender)
     return 1;
 }
 
-static void on_rtsp_realm(const mk_media_info url_info, const mk_rtsp_get_realm_invoker invoker, const mk_sock_info sender) {
-    (void)sender;
-    const char *app = mk_media_info_get_app(url_info);
-    const char *stream = mk_media_info_get_stream(url_info);
-    int require = 0;
-    pthread_mutex_lock(&g_mu);
-    require = g_kind == MFRX_KIND_RTSP && (g_user[0] != '\0' || g_pass[0] != '\0') && identity_ok(app, stream);
-    pthread_mutex_unlock(&g_mu);
-    mk_rtsp_get_realm_invoker_do(invoker, require ? "MediaFlowRX" : "");
-}
-
-static void on_rtsp_auth(const mk_media_info url_info,
-                         const char *realm,
-                         const char *user_name,
-                         int must_no_encrypt,
-                         const mk_rtsp_auth_invoker invoker,
-                         const mk_sock_info sender) {
-    (void)url_info;
-    (void)realm;
-    (void)must_no_encrypt;
-    (void)sender;
-    char password[256];
-    password[0] = '\0';
-    pthread_mutex_lock(&g_mu);
-    if (user_name && strcmp(user_name, g_user) == 0) {
-        copy_text(password, sizeof(password), g_pass);
-    } else {
-        copy_text(password, sizeof(password), "invalid");
-    }
-    pthread_mutex_unlock(&g_mu);
-    mk_rtsp_auth_invoker_do(invoker, 0, password);
-}
-
 static void install_events(void) {
     mk_events events;
     memset(&events, 0, sizeof(events));
@@ -509,57 +662,49 @@ static void install_events(void) {
     events.on_mk_media_publish = on_publish;
     events.on_mk_media_play = on_play;
     events.on_mk_media_not_found = on_not_found;
-    events.on_mk_rtsp_get_realm = on_rtsp_realm;
-    events.on_mk_rtsp_auth = on_rtsp_auth;
     events.on_mk_record_mp4 = on_record;
     mk_events_listen(&events);
 }
 
-static void wait_for_record(void) {
-    if (!g_recording) {
-        return;
-    }
-    g_recording = 0;
-    pthread_mutex_lock(&g_mu);
-    g_record_inflight = 1;
+/// The stop itself does not wait for the file: on_record reports it when it is closed.
+/// Only mfrx_stop waits, so the file is complete before the app quits or the listener restarts.
+static void stop_recording(int wait) {
     char vhost[256];
     char app[256];
     char stream[256];
-    snprintf(vhost, sizeof(vhost), "%s", g_vhost);
-    snprintf(app, sizeof(app), "%s", g_app);
-    snprintf(stream, sizeof(stream), "%s", g_stream);
+    pthread_mutex_lock(&g_mu);
+    g_recording = 0;
+    copy_text(vhost, sizeof(vhost), g_vhost);
+    copy_text(app, sizeof(app), g_app);
+    copy_text(stream, sizeof(stream), g_stream);
     pthread_mutex_unlock(&g_mu);
-    int stopped = 0;
-    if (vhost[0] && app[0] && stream[0]) {
-        stopped = mk_recorder_stop(1, vhost, app, stream);
-    }
-    if (!stopped) {
+    if (vhost[0] && app[0] && stream[0] && mk_recorder_is_recording(1, vhost, app, stream)) {
+        // Counted before the call: the file can close, and on_record run, before mk_recorder_stop returns.
         pthread_mutex_lock(&g_mu);
-        g_record_inflight = 0;
+        g_record_pending += 1;
         pthread_mutex_unlock(&g_mu);
+        if (!mk_recorder_stop(1, vhost, app, stream)) {
+            pthread_mutex_lock(&g_mu);
+            if (g_record_pending > 0) {
+                g_record_pending -= 1;
+            }
+            pthread_mutex_unlock(&g_mu);
+        }
+    }
+    if (!wait) {
         return;
     }
     pthread_mutex_lock(&g_mu);
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec += 8;
-    while (g_record_inflight) {
+    while (g_record_pending > 0) {
         if (pthread_cond_timedwait(&g_cv, &g_mu, &ts) != 0) {
             break;
         }
     }
-    g_record_inflight = 0;
+    g_record_pending = 0;
     pthread_mutex_unlock(&g_mu);
-}
-
-static void stamp_name(void) {
-    time_t now = time(NULL);
-    struct tm tm;
-    localtime_r(&now, &tm);
-    char when[64];
-    strftime(when, sizeof(when), "%Y-%m-%d_%H-%M-%S", &tm);
-    snprintf(g_base_name, sizeof(g_base_name), "%s_%s.mp4", g_slug, when);
-    g_slice = 0;
 }
 
 const char *mfrx_last_error(void) {
@@ -596,7 +741,7 @@ void mfrx_set_record_directory(const char *directory) {
 
 int mfrx_set_recording(int enabled) {
     if (!enabled) {
-        wait_for_record();
+        stop_recording(0);
         return 1;
     }
     pthread_mutex_lock(&g_mu);
@@ -606,12 +751,12 @@ int mfrx_set_recording(int enabled) {
     char app[256];
     char stream[256];
     char directory[1024];
-    snprintf(vhost, sizeof(vhost), "%s", g_vhost);
-    snprintf(app, sizeof(app), "%s", g_app);
-    snprintf(stream, sizeof(stream), "%s", g_stream);
-    snprintf(directory, sizeof(directory), "%s", g_record_dir);
+    copy_text(vhost, sizeof(vhost), g_vhost);
+    copy_text(app, sizeof(app), g_app);
+    copy_text(stream, sizeof(stream), g_stream);
+    copy_text(directory, sizeof(directory), g_record_dir);
     if (have_source && !already) {
-        stamp_name();
+        push_session(directory);
     }
     pthread_mutex_unlock(&g_mu);
     if (!have_source) {
@@ -630,20 +775,24 @@ int mfrx_set_recording(int enabled) {
         }
     }
     int started = mk_recorder_start(1, vhost, app, stream, directory, 86400);
+    pthread_mutex_lock(&g_mu);
+    if (started) {
+        g_recording = 1;
+    } else if (g_session_count > 0) {
+        g_session_count -= 1;
+    }
+    pthread_mutex_unlock(&g_mu);
     if (!started) {
         set_error("Recording did not start");
         return 0;
     }
-    pthread_mutex_lock(&g_mu);
-    g_recording = 1;
-    pthread_mutex_unlock(&g_mu);
     set_error("");
     return 1;
 }
 
 void mfrx_stop(void) {
     atomic_store(&g_running, 0);
-    wait_for_record();
+    stop_recording(1);
     if (g_inited) {
         mk_stop_all_server();
     }
@@ -660,8 +809,6 @@ int mfrx_start(const mfrx_config *config, void *ctx) {
     mfrx_stop();
     pthread_mutex_lock(&g_mu);
     g_peer[0] = '\0';
-    pthread_mutex_unlock(&g_mu);
-    pthread_mutex_lock(&g_mu);
     g_kind = config->kind;
     copy_text(g_slug, sizeof(g_slug), config->slug);
     copy_text(g_key, sizeof(g_key), config->key);

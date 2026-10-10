@@ -1,10 +1,11 @@
 import AppKit
 import AVFoundation
 import CoreMedia
+import os
 import SwiftUI
 import VideoToolbox
 
-struct MediaPacket: Sendable {
+nonisolated struct MediaPacket: Sendable {
     var codec: Int32
     var isVideo: Bool
     var isKey: Bool
@@ -25,15 +26,20 @@ struct MediaPacket: Sendable {
     var arrival: TimeInterval
 }
 
-struct AudioLevel: Equatable {
+nonisolated struct AudioLevel: Equatable, Sendable {
     static let floor: Float = -60
     var peak: Float = AudioLevel.floor
     var rms: Float = AudioLevel.floor
 }
 
-@MainActor
-final class PreviewPlayer {
-    private weak var displayLayer: AVSampleBufferDisplayLayer?
+/// Decodes and plays the preview on its own serial queue, so a busy UI never delays frames
+/// and decoding never slows the UI. Every stored property is touched only on `queue`,
+/// except the meter, which has its own lock because the view reads it from the main thread.
+nonisolated final class PreviewPlayer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "MediaFlowRX.preview", qos: .userInteractive)
+
+    /// The layer itself belongs to the main thread. Its renderer is the part meant to be fed from a queue.
+    private var renderer: AVSampleBufferVideoRenderer?
     private var formatDescription: CMVideoFormatDescription?
     private var h264SPS: Data?
     private var h264PPS: Data?
@@ -41,19 +47,15 @@ final class PreviewPlayer {
     private var hevcSPS: Data?
     private var hevcPPS: Data?
     private var pendingPTS: UInt64?
-    private var pendingDTS: UInt64?
     private var pendingKey = false
     private var pendingNALs: [Data] = []
-    private var pendingCodec: Int32 = 0
     private var formatTokenSPS: Data?
     private var formatTokenPPS: Data?
     private var formatTokenVPS: Data?
-    private var timebase: CMTimebase?
-    private var clockReady = false
-    private var anchorHost = CMTime.zero
-    private var anchorPTS: UInt64 = 0
+    private let timebase: CMTimebase?
+    private var clock = PlayoutClock()
     private var lastVideoPTS: UInt64?
-    private var needsKeyframe = false
+    private var needsKeyframe = true
     /// The encoder splits frames into slices (x264 zerolatency, for example).
     /// Slices are then joined, and the frame is sent only when the next one arrives.
     private var multiSlice = false
@@ -64,73 +66,132 @@ final class PreviewPlayer {
     private var compressedFormat: AVAudioFormat?
     private var audioFormat: AVAudioFormat?
     private var audioSpecificConfig = Data()
+    /// The last configuration seen, kept to rebuild the chain after an output device change.
+    private var knownASC: Data?
+    private var usingCookie = false
     private var audioReady = false
     private var audioStartFailed = false
-    private var meterPeak = AudioLevel.floor
-    private var meterRMS = AudioLevel.floor
-    private var meterTime: TimeInterval = 0
-    var isMuted = false {
-        didSet { playerNode.volume = isMuted ? 0 : 1 }
+    /// Frames handed to the player and not played yet. This is the audio delay we control.
+    private var queuedFrames: AVAudioFramePosition = 0
+    /// Bumped on every reset, so completions of buffers from before it are ignored.
+    private var audioGeneration = 0
+    private var audioGate = AudioLatencyGate()
+    private var muted = false
+    private var configurationObserver: NSObjectProtocol?
+
+    private struct MeterState {
+        var peak = AudioLevel.floor
+        var rms = AudioLevel.floor
+        var time: TimeInterval = 0
     }
+    private let meterState = OSAllocatedUnfairLock(initialState: MeterState())
 
     init() {
+        var created: CMTimebase?
+        CMTimebaseCreateWithSourceClock(
+            allocator: kCFAllocatorDefault,
+            sourceClock: CMClockGetHostTimeClock(),
+            timebaseOut: &created
+        )
+        timebase = created
         audioEngine.attach(playerNode)
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: audioEngine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async { self.audioConfigurationChanged() }
+        }
     }
 
-    func attach(_ layer: AVSampleBufferDisplayLayer) {
-        displayLayer = layer
-        layer.videoGravity = .resizeAspect
-        if timebase == nil {
-            var created: CMTimebase?
-            CMTimebaseCreateWithSourceClock(
-                allocator: kCFAllocatorDefault,
-                sourceClock: CMClockGetHostTimeClock(),
-                timebaseOut: &created
-            )
-            timebase = created
+    deinit {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
         }
+    }
+
+    // MARK: - Interface, callable from any thread
+
+    @MainActor
+    func attach(_ layer: AVSampleBufferDisplayLayer) {
         if layer.controlTimebase !== timebase {
             layer.controlTimebase = timebase
         }
+        // Not annotated Sendable, but the renderer is the API meant to be fed from a background queue.
+        nonisolated(unsafe) let renderer = layer.sampleBufferRenderer
+        queue.async { self.attachOnQueue(renderer) }
     }
 
     func reset() {
-        pendingPTS = nil
-        pendingDTS = nil
-        pendingKey = false
-        pendingNALs.removeAll()
-        clockReady = false
-        lastVideoPTS = nil
-        needsKeyframe = true
-        multiSlice = false
-        displayLayer?.flushAndRemoveImage()
-        playerNode.stop()
-        if audioEngine.isRunning {
-            audioEngine.stop()
+        queue.async { self.resetOnQueue() }
+    }
+
+    func consume(_ packet: MediaPacket) {
+        queue.async { self.consumeOnQueue(packet) }
+    }
+
+    func setMuted(_ value: Bool) {
+        queue.async {
+            self.muted = value
+            self.playerNode.volume = value ? 0 : 1
         }
-        audioReady = false
-        audioStartFailed = false
-        audioConverter = nil
-        compressedFormat = nil
-        audioFormat = nil
-        audioSpecificConfig = Data()
-        meterPeak = AudioLevel.floor
-        meterRMS = AudioLevel.floor
     }
 
     /// Level to show now. Not observed: the view reads it on a timer.
     /// Measured on decoded samples, so it stays live while the audio is muted.
     func audioLevel(at now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> AudioLevel {
-        let elapsed = Float(max(0, now - meterTime))
-        return AudioLevel(
-            peak: max(AudioLevel.floor, meterPeak - elapsed * Self.peakRelease),
-            rms: max(AudioLevel.floor, meterRMS - elapsed * Self.rmsRelease)
-        )
+        meterState.withLock { Self.level(of: $0, at: now) }
     }
+
+    // MARK: - Queue side
+
+    private func attachOnQueue(_ renderer: AVSampleBufferVideoRenderer) {
+        guard self.renderer !== renderer else { return }
+        self.renderer = renderer
+        clock.reset()
+        needsKeyframe = true
+    }
+
+    private func resetOnQueue() {
+        pendingPTS = nil
+        pendingKey = false
+        pendingNALs.removeAll()
+        clock.reset()
+        lastVideoPTS = nil
+        needsKeyframe = true
+        multiSlice = false
+        renderer?.flush(removingDisplayedImage: true, completionHandler: nil)
+        stopAudio()
+        audioConverter = nil
+        compressedFormat = nil
+        audioFormat = nil
+        audioSpecificConfig = Data()
+        knownASC = nil
+        meterState.withLock { $0 = MeterState() }
+    }
+
+    private func consumeOnQueue(_ packet: MediaPacket) {
+        if packet.isVideo {
+            consumeVideo(packet)
+        } else if packet.codec == MFRX_CODEC_AAC {
+            consumeAudio(packet)
+        }
+    }
+
+    // MARK: - Meter
 
     /// Fall in dB per second. The peak drops slowly so it stays readable; the average drops faster.
     private static let peakRelease: Float = 20
     private static let rmsRelease: Float = 30
+
+    private static func level(of state: MeterState, at now: TimeInterval) -> AudioLevel {
+        let elapsed = Float(max(0, now - state.time))
+        return AudioLevel(
+            peak: max(AudioLevel.floor, state.peak - elapsed * peakRelease),
+            rms: max(AudioLevel.floor, state.rms - elapsed * rmsRelease)
+        )
+    }
 
     private func meter(_ buffer: AVAudioPCMBuffer) {
         guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
@@ -147,10 +208,12 @@ final class PreviewPlayer {
         }
         let count = Float(frames * Int(buffer.format.channelCount))
         let now = ProcessInfo.processInfo.systemUptime
-        let current = audioLevel(at: now)
-        meterPeak = max(current.peak, Self.decibels(peak))
-        meterRMS = max(current.rms, Self.decibels((sum / count).squareRoot()))
-        meterTime = now
+        let peakDB = Self.decibels(peak)
+        let rmsDB = Self.decibels((sum / count).squareRoot())
+        meterState.withLock { state in
+            let current = Self.level(of: state, at: now)
+            state = MeterState(peak: max(current.peak, peakDB), rms: max(current.rms, rmsDB), time: now)
+        }
     }
 
     private static func decibels(_ amplitude: Float) -> Float {
@@ -158,13 +221,7 @@ final class PreviewPlayer {
         return max(AudioLevel.floor, 20 * log10(amplitude))
     }
 
-    func consume(_ packet: MediaPacket) {
-        if packet.isVideo {
-            consumeVideo(packet)
-        } else if packet.codec == MFRX_CODEC_AAC {
-            consumeAudio(packet)
-        }
-    }
+    // MARK: - Video
 
     private func consumeVideo(_ packet: MediaPacket) {
         let nals = nalUnits(from: packet.data)
@@ -191,9 +248,7 @@ final class PreviewPlayer {
         }
         if pendingPTS == nil {
             pendingPTS = packet.pts
-            pendingDTS = packet.dts
             pendingKey = packet.isKey
-            pendingCodec = packet.codec
         }
         pendingNALs.append(contentsOf: picture)
         if !multiSlice {
@@ -204,73 +259,41 @@ final class PreviewPlayer {
 
     private func clearPending() {
         pendingPTS = nil
-        pendingDTS = nil
         pendingNALs.removeAll()
     }
 
     private func enqueuePending() {
-        guard let layer = displayLayer, let formatDescription, !pendingNALs.isEmpty else { return }
-        if layer.status == .failed {
-            layer.flush()
-            clockReady = false
+        guard let renderer, let formatDescription, !pendingNALs.isEmpty else { return }
+        if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
+            renderer.flush()
+            clock.reset()
             needsKeyframe = true
         }
         if needsKeyframe && !pendingKey {
             return
         }
         let pts = pendingPTS ?? 0
-        let when = presentationTime(for: pts)
+        // No decode time: the layer decodes in enqueue order, which is decode order,
+        // and a decode time derived from the presentation clock breaks with B-frames.
         guard let sample = makeSampleBuffer(
             nals: pendingNALs,
             format: formatDescription,
-            pts: when,
-            dts: decodeTime(for: pendingDTS ?? pts, presentation: when),
+            pts: presentationTime(for: pts),
             duration: frameDuration(endingAt: pts)
         ) else { return }
         needsKeyframe = false
         lastVideoPTS = pts
-        layer.enqueue(sample)
+        renderer.enqueue(sample)
     }
-
-    /// Playout delay: frames are shown this long after they arrive.
-    /// A small fixed buffer keeps a late or bursty packet from showing up as a jump.
-    private let playoutDelay = CMTime(value: 120, timescale: 1000)
 
     private func presentationTime(for pts: UInt64) -> CMTime {
         let hostNow = CMClockGetTime(CMClockGetHostTimeClock())
-        if !clockReady {
-            anchorHost = CMTimeAdd(hostNow, playoutDelay)
-            anchorPTS = pts
-            clockReady = true
-            if let timebase {
-                CMTimebaseSetTime(timebase, time: hostNow)
-                CMTimebaseSetRate(timebase, rate: 1)
-            }
-            return anchorHost
+        if !clock.isReady, let timebase {
+            CMTimebaseSetTime(timebase, time: hostNow)
+            CMTimebaseSetRate(timebase, rate: 1)
         }
-        let deltaMs = Int64(bitPattern: pts) - Int64(bitPattern: anchorPTS)
-        if deltaMs < 0 {
-            anchorHost = CMTimeAdd(hostNow, playoutDelay)
-            anchorPTS = pts
-            return anchorHost
-        }
-        let when = CMTimeAdd(anchorHost, CMTime(value: deltaMs, timescale: 1000))
-        let late = CMTimeGetSeconds(CMTimeSubtract(hostNow, when))
-        if late > 0.02 {
-            // The frame arrived after its time. Re-anchor the timeline on now plus the buffer.
-            anchorHost = CMTimeSubtract(CMTimeAdd(hostNow, playoutDelay), CMTime(value: deltaMs, timescale: 1000))
-            return CMTimeAdd(hostNow, playoutDelay)
-        }
-        return when
-    }
-
-    private func decodeTime(for dts: UInt64, presentation: CMTime) -> CMTime {
-        let deltaMs = Int64(bitPattern: dts) - Int64(bitPattern: anchorPTS)
-        let mapped = CMTimeAdd(anchorHost, CMTime(value: max(0, deltaMs), timescale: 1000))
-        if CMTimeCompare(mapped, presentation) > 0 {
-            return presentation
-        }
-        return mapped
+        let when = clock.presentationTime(for: pts, hostNow: CMTimeGetSeconds(hostNow))
+        return CMTime(seconds: when, preferredTimescale: 1_000_000_000)
     }
 
     private func frameDuration(endingAt pts: UInt64) -> CMTime {
@@ -336,34 +359,37 @@ final class PreviewPlayer {
     }
 
     private func nalUnits(from data: Data) -> [Data] {
-        let bytes = [UInt8](data)
-        var headers: [(payload: Int, code: Int)] = []
-        var index = 0
-        while index + 3 < bytes.count {
-            if bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 1 {
-                headers.append((index + 3, index))
-                index += 3
-                continue
+        data.withUnsafeBytes { raw -> [Data] in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            let count = bytes.count
+            var headers: [(payload: Int, code: Int)] = []
+            var index = 0
+            while index + 3 < count {
+                if bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 1 {
+                    headers.append((index + 3, index))
+                    index += 3
+                    continue
+                }
+                if index + 4 < count, bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 0, bytes[index + 3] == 1 {
+                    headers.append((index + 4, index))
+                    index += 4
+                    continue
+                }
+                index += 1
             }
-            if index + 4 < bytes.count, bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 0, bytes[index + 3] == 1 {
-                headers.append((index + 4, index))
-                index += 4
-                continue
+            if headers.isEmpty {
+                return count == 0 ? [] : [data]
             }
-            index += 1
-        }
-        if headers.isEmpty {
-            return data.isEmpty ? [] : [data]
-        }
-        var units: [Data] = []
-        for offset in headers.indices {
-            let begin = headers[offset].payload
-            let end = offset + 1 < headers.count ? headers[offset + 1].code : bytes.count
-            if begin < end {
-                units.append(Data(bytes[begin..<end]))
+            var units: [Data] = []
+            for offset in headers.indices {
+                let begin = headers[offset].payload
+                let end = offset + 1 < headers.count ? headers[offset + 1].code : count
+                if begin < end {
+                    units.append(Data(UnsafeRawBufferPointer(rebasing: raw[begin..<end])))
+                }
             }
+            return units
         }
-        return units
     }
 
     private func makeH264Format(sps: Data, pps: Data) -> CMVideoFormatDescription? {
@@ -414,7 +440,7 @@ final class PreviewPlayer {
         return description
     }
 
-    private func makeSampleBuffer(nals: [Data], format: CMVideoFormatDescription, pts: CMTime, dts: CMTime, duration: CMTime) -> CMSampleBuffer? {
+    private func makeSampleBuffer(nals: [Data], format: CMVideoFormatDescription, pts: CMTime, duration: CMTime) -> CMSampleBuffer? {
         var avcc = Data()
         for nal in nals {
             var length = UInt32(nal.count).bigEndian
@@ -446,7 +472,7 @@ final class PreviewPlayer {
         var timing = CMSampleTimingInfo(
             duration: duration,
             presentationTimeStamp: pts,
-            decodeTimeStamp: dts
+            decodeTimeStamp: .invalid
         )
         var sampleSize = avcc.count
         var sample: CMSampleBuffer?
@@ -465,6 +491,8 @@ final class PreviewPlayer {
         return sample
     }
 
+    // MARK: - Audio
+
     private func consumeAudio(_ packet: MediaPacket) {
         if packet.isConfig {
             configureAudio(asc: packet.data, fallbackRate: packet.sampleRate, fallbackChannels: packet.channels)
@@ -474,11 +502,11 @@ final class PreviewPlayer {
             // Some encoders, OBS included, never send the AAC sequence header to a
             // track that is already attached. Without it the audio was dropped silently.
             // Rebuild an AAC-LC AudioSpecificConfig from the frame's rate and channel count.
-            guard let asc = Self.audioSpecificConfig(sampleRate: packet.sampleRate, channels: packet.channels) else { return }
+            guard let asc = knownASC ?? Self.audioSpecificConfig(sampleRate: packet.sampleRate, channels: packet.channels) else { return }
             configureAudio(asc: asc, fallbackRate: packet.sampleRate, fallbackChannels: packet.channels)
             if audioConverter == nil { return }
         }
-        let raw = stripADTS(packet.data)
+        let raw = Self.payload(of: packet)
         guard !raw.isEmpty, let buffer = decodeAAC(raw) else { return }
         meter(buffer)
         schedule(buffer)
@@ -486,25 +514,54 @@ final class PreviewPlayer {
 
     private func configureAudio(asc: Data, fallbackRate: Int32, fallbackChannels: Int32) {
         guard asc != audioSpecificConfig else { return }
-        // Marked immediately. A failed connection must not be retried on every packet,
-        // or the main thread stays busy and the cursor spins.
+        // Marked immediately. A failed connection must not be retried on every packet.
         audioSpecificConfig = asc
-        let parsed = parseASC(asc)
-        let rate = Double(fallbackRate > 0 ? fallbackRate : Int32(parsed?.rate ?? 48000))
-        let channels = AVAudioChannelCount(max(1, min(Int(fallbackChannels > 0 ? fallbackChannels : Int32(parsed?.channels ?? 2)), 8)))
+        knownASC = asc
+        let parsed = Self.parseASC(asc)
+        let rate = parsed?.sampleRate ?? Double(fallbackRate > 0 ? fallbackRate : 48000)
+        let channels = AVAudioChannelCount(max(1, min(parsed?.channels ?? Int(fallbackChannels > 0 ? fallbackChannels : 2), 8)))
         guard rate >= 8000, let compressed = AVAudioFormat(settings: [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVFormatIDKey: parsed?.formatID ?? kAudioFormatMPEG4AAC,
             AVSampleRateKey: rate,
             AVNumberOfChannelsKey: channels,
         ]) else { return }
+        stopAudio()
         guard let playback = installPlayback(compressed: compressed, sourceRate: rate, sourceChannels: channels) else { return }
         audioConverter = playback.converter
         compressedFormat = compressed
         audioFormat = playback.format
+        applyCookie(to: playback.converter, asc: asc)
+        playerNode.volume = muted ? 0 : 1
+        NSLog("MediaFlowRX: audio pronto %.0f Hz %u canali", playback.format.sampleRate, playback.format.channelCount)
+    }
+
+    /// The decoder reads profile, SBR and PS from the cookie. Without it HE-AAC plays at the wrong rate.
+    private func applyCookie(to converter: AVAudioConverter, asc: Data) {
+        converter.magicCookie = Self.esds(for: asc)
+        usingCookie = converter.magicCookie != nil
+    }
+
+    /// The output device changed (headphones, AirPlay, sample rate). The engine has stopped on its own:
+    /// the chain is rebuilt on the next packet, from the same configuration.
+    private func audioConfigurationChanged() {
+        stopAudio()
+        audioConverter = nil
+        compressedFormat = nil
+        audioFormat = nil
+        audioSpecificConfig = Data()
+        NSLog("MediaFlowRX: uscita audio cambiata, riconfiguro")
+    }
+
+    private func stopAudio() {
+        playerNode.stop()
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
         audioReady = false
         audioStartFailed = false
-        playerNode.volume = isMuted ? 0 : 1
-        NSLog("MediaFlowRX: audio pronto %.0f Hz %u canali", playback.format.sampleRate, playback.format.channelCount)
+        queuedFrames = 0
+        audioGeneration += 1
+        audioGate.reset()
     }
 
     /// Connects the player to the mixer. The format is non-interleaved float32, the only one the mixer accepts.
@@ -521,9 +578,6 @@ final class PreviewPlayer {
            !candidates.contains(where: { $0.sampleRate == source.sampleRate && $0.channelCount == source.channelCount }) {
             candidates.append(source)
         }
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
         for format in candidates {
             guard let converter = AVAudioConverter(from: compressed, to: format) else { continue }
             audioEngine.disconnectNodeOutput(playerNode)
@@ -537,6 +591,19 @@ final class PreviewPlayer {
     }
 
     private func decodeAAC(_ packet: Data) -> AVAudioPCMBuffer? {
+        if let buffer = convert(packet) {
+            return buffer
+        }
+        // A decoder that refuses the cookie gets one more chance without it, as before.
+        guard usingCookie, let compressedFormat, let audioFormat,
+              let plain = AVAudioConverter(from: compressedFormat, to: audioFormat) else { return nil }
+        audioConverter = plain
+        usingCookie = false
+        NSLog("MediaFlowRX: magic cookie AAC rifiutato, decodifico senza")
+        return convert(packet)
+    }
+
+    private func convert(_ packet: Data) -> AVAudioPCMBuffer? {
         guard let audioConverter, let audioFormat, let compressedFormat else { return nil }
         let compressed = AVAudioCompressedBuffer(format: compressedFormat, packetCapacity: 1, maximumPacketSize: packet.count)
         packet.withUnsafeBytes { raw in
@@ -576,33 +643,124 @@ final class PreviewPlayer {
             audioReady = true
             NSLog("MediaFlowRX: riproduzione audio avviata")
         }
-        playerNode.scheduleBuffer(buffer)
+        switch audioGate.decide(queued: Double(queuedFrames) / buffer.format.sampleRate) {
+        case .drop:
+            return
+        case .primeThenPlay(let seconds):
+            if let silence = Self.silence(format: buffer.format, seconds: seconds) {
+                enqueueAudio(silence)
+            }
+        case .play:
+            break
+        }
+        enqueueAudio(buffer)
     }
 
-    private func stripADTS(_ data: Data) -> Data {
-        guard data.count > 7, data[0] == 0xFF, (data[1] & 0xF0) == 0xF0 else { return data }
-        let header = (data[1] & 0x01) == 1 ? 7 : 9
-        guard data.count > header else { return Data() }
-        return data.subdata(in: header..<data.count)
+    private func enqueueAudio(_ buffer: AVAudioPCMBuffer) {
+        let frames = AVAudioFramePosition(buffer.frameLength)
+        let generation = audioGeneration
+        queuedFrames += frames
+        playerNode.scheduleBuffer(buffer) { [weak self] in
+            guard let self else { return }
+            self.queue.async {
+                guard self.audioGeneration == generation else { return }
+                self.queuedFrames = max(0, self.queuedFrames - frames)
+            }
+        }
     }
+
+    private static func silence(format: AVAudioFormat, seconds: Double) -> AVAudioPCMBuffer? {
+        let frames = AVAudioFrameCount(format.sampleRate * seconds)
+        guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
+              let channels = buffer.floatChannelData else { return nil }
+        buffer.frameLength = frames
+        for channel in 0..<Int(format.channelCount) {
+            channels[channel].update(repeating: 0, count: Int(frames))
+        }
+        return buffer
+    }
+
+    /// The engine marks the ADTS header with prefix_size. A header with CRC is two bytes longer.
+    private static func payload(of packet: MediaPacket) -> Data {
+        let data = packet.data
+        var header = max(0, packet.prefixSize)
+        if header == 7, data.count > 1, data[data.startIndex] == 0xFF, (data[data.startIndex + 1] & 0x01) == 0 {
+            header = 9
+        }
+        guard data.count > header else { return header == 0 ? data : Data() }
+        return header == 0 ? data : data.subdata(in: (data.startIndex + header)..<data.endIndex)
+    }
+
+    private static let aacRates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
 
     private static func audioSpecificConfig(sampleRate: Int32, channels: Int32) -> Data? {
-        let rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
-        guard let index = rates.firstIndex(of: Int(sampleRate)), (1...7).contains(channels) else { return nil }
+        guard let index = aacRates.firstIndex(of: Int(sampleRate)), (1...7).contains(channels) else { return nil }
         let objectTypeAACLC: UInt8 = 2
         let first = (objectTypeAACLC << 3) | UInt8(index >> 1)
         let second = (UInt8(index & 1) << 7) | (UInt8(channels) << 3)
         return Data([first, second])
     }
 
-    private func parseASC(_ data: Data) -> (rate: Double, channels: UInt32)? {
-        guard data.count >= 2 else { return nil }
-        let rates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
-        let freqIndex = Int(((data[0] & 0x07) << 1) | (data[1] >> 7))
-        var channels = UInt32((data[1] >> 3) & 0x0F)
-        guard freqIndex < rates.count else { return nil }
-        if channels == 0 { channels = 2 }
-        return (Double(rates[freqIndex]), channels)
+    private struct AudioConfig {
+        var formatID: AudioFormatID
+        var sampleRate: Double
+        var channels: Int
+    }
+
+    /// AudioSpecificConfig (ISO 14496-3 1.6.2.1): object type, rate and channels,
+    /// plus the SBR rate for HE-AAC, which the decoder outputs instead of the core rate.
+    private static func parseASC(_ data: Data) -> AudioConfig? {
+        var reader = BitReader(data)
+        func objectType() -> Int? {
+            guard let type = reader.read(5) else { return nil }
+            guard type == 31 else { return type }
+            return reader.read(6).map { 32 + $0 }
+        }
+        func frequency() -> Double? {
+            guard let index = reader.read(4) else { return nil }
+            if index == 15 { return reader.read(24).map(Double.init) }
+            return index < aacRates.count ? Double(aacRates[index]) : nil
+        }
+        guard let type = objectType(), let coreRate = frequency(), let config = reader.read(4) else { return nil }
+        var channels = config == 0 ? 2 : (config == 7 ? 8 : config)
+        var rate = coreRate
+        var formatID = kAudioFormatMPEG4AAC
+        if type == 5 || type == 29 {
+            if let extended = frequency() { rate = extended }
+            formatID = type == 29 ? kAudioFormatMPEG4AAC_HE_V2 : kAudioFormatMPEG4AAC_HE
+            if type == 29 { channels = 2 }
+        }
+        return AudioConfig(formatID: formatID, sampleRate: rate, channels: channels)
+    }
+
+    /// The MPEG-4 ES descriptor that wraps the AudioSpecificConfig: the cookie Core Audio expects for AAC.
+    private static func esds(for asc: Data) -> Data? {
+        guard !asc.isEmpty, asc.count < 100 else { return nil }
+        let specific = [UInt8(0x05), UInt8(asc.count)] + [UInt8](asc)
+        let decoderConfig: [UInt8] = [0x04, UInt8(13 + specific.count), 0x40, 0x15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] + specific
+        let slConfig: [UInt8] = [0x06, 0x01, 0x02]
+        let body: [UInt8] = [0, 0, 0] + decoderConfig + slConfig
+        return Data([0x03, UInt8(body.count)] + body)
+    }
+}
+
+nonisolated private struct BitReader {
+    private let bytes: [UInt8]
+    private var position = 0
+
+    init(_ data: Data) {
+        bytes = [UInt8](data)
+    }
+
+    mutating func read(_ count: Int) -> Int? {
+        guard position + count <= bytes.count * 8 else { return nil }
+        var value = 0
+        for _ in 0..<count {
+            let bit = (bytes[position / 8] >> (7 - UInt8(position % 8))) & 1
+            value = (value << 1) | Int(bit)
+            position += 1
+        }
+        return value
     }
 }
 

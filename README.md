@@ -52,13 +52,15 @@ The app is not sandboxed: it has to accept incoming connections on the chosen po
 
 RTMP, for OBS: server `rtmp://<mac>:1935/live`, stream key `stream`.
 
-SRT, for OBS: server `srt://<mac>:9000`, stream id `#!::r=live/stream,m=publish`. SRT is not encrypted. ZLMediaKit does not support an SRT passphrase.
+SRT, for OBS: server `srt://<mac>:9000`, stream id `#!::r=live/stream,m=publish`. SRT is not encrypted.
 
-RTSP: `rtsp://<mac>:8554/live/stream`. Username and password, if set in Settings, are RTSP credentials.
+RTSP: `rtsp://<mac>:8554/live/stream`.
+
+Username and password are optional. When set in Settings, the encoder must send them: after the stream key on RTMP (`stream?user=…&pass=…`), in the URL query on RTSP (`?user=…&pass=…`), in the stream id on SRT (`,user=…,pass=…`). With both empty, slug and key are enough.
 
 `live` and `stream` are the defaults. The window always shows the URL that matches the current settings.
 
-The MP4 can be opened after recording stops: Stop, grace period elapsed, or the app quits. A crash in the middle can leave an unreadable file.
+Recordings are fragmented MP4: the file is written as the stream comes in, so a crash or power loss costs only the last seconds.
 
 ## Build
 
@@ -66,7 +68,7 @@ The MP4 can be opened after recording stops: Stop, grace period elapsed, or the 
 ./scripts/build-zlm.sh
 ```
 
-The script clones ZLMediaKit into `third_party/` (not part of this repository) and builds `libmk_api.dylib`. Then open `MediaFlowRX.xcodeproj` and run the MediaFlowRX scheme.
+The script clones ZLMediaKit into `third_party/` (not part of this repository) at the commit pinned in the script, and builds `libmk_api.dylib`. To try another version: `ZLM_COMMIT=<sha> ./scripts/build-zlm.sh`. Then open `MediaFlowRX.xcodeproj` and run the MediaFlowRX scheme.
 
 A disk image:
 
