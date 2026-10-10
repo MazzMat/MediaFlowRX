@@ -60,6 +60,29 @@ struct PreferencesView: View {
             } footer: {
                 Text("The language applies the next time the app opens.")
             }
+
+            Section {
+                Toggle("Show closed captions", isOn: $draft.showCaptions)
+                Picker("Text size", selection: $draft.captionScale) {
+                    ForEach(AppSettings.captionScales, id: \.self) { scale in
+                        Text(scale.formatted(.percent)).tag(scale)
+                    }
+                }
+                .pickerStyle(.segmented)
+                LabeledContent("Background opacity") {
+                    HStack(spacing: 10) {
+                        Slider(value: $draft.captionBackground, in: 0...1, step: 0.1)
+                            .frame(width: 180)
+                        Text(draft.captionBackground.formatted(.percent.precision(.fractionLength(0))))
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+            } header: {
+                Text("Closed captions")
+            } footer: {
+                Text("CEA-608 captions (CC1) carried in the video. The CC button in the main window hides or shows them for this session only.")
+            }
         }
         .formStyle(.grouped)
     }
@@ -174,25 +197,6 @@ struct PreferencesView: View {
             }
 
             Section {
-                LabeledContent("Tolerance") {
-                    Text("\(draft.graceSeconds) s")
-                        .monospacedDigit()
-                }
-                Slider(value: graceBinding, in: 1...120, step: 1) {
-                    Text("Tolerance")
-                } minimumValueLabel: {
-                    Text("1 s").font(.caption)
-                } maximumValueLabel: {
-                    Text("120 s").font(.caption)
-                }
-                .labelsHidden()
-            } header: {
-                Text("Interruptions")
-            } footer: {
-                Text("If the encoder drops, the file stays open for this long. If it returns in time, recording continues.")
-            }
-
-            Section {
                 HStack(spacing: 10) {
                     Image(systemName: "folder.fill")
                         .foregroundStyle(.secondary)
@@ -212,6 +216,14 @@ struct PreferencesView: View {
                 }
             } header: {
                 Text("Folder")
+            }
+
+            Section {
+                Toggle("Save closed captions as SRT", isOn: $draft.saveCaptions)
+            } header: {
+                Text("Closed captions")
+            } footer: {
+                Text("Next to each MP4, a file with the same name and the CC1 captions. The MP4 keeps the captions in the video either way. Applies from the next recording.")
             }
         }
         .formStyle(.grouped)
@@ -265,13 +277,6 @@ struct PreferencesView: View {
         )
     }
 
-    private var graceBinding: Binding<Double> {
-        Binding(
-            get: { Double(draft.graceSeconds) },
-            set: { draft.graceSeconds = Int($0.rounded()) }
-        )
-    }
-
     private func apply() {
         let previous = settings.draft
         let next = current
@@ -279,14 +284,19 @@ struct PreferencesView: View {
         settings.apply(next)
         draft = next
 
+        if next.showCaptions != previous.showCaptions || next.saveCaptions != previous.saveCaptions
+            || next.folderPath != previous.folderPath {
+            engine.updateCaptions(
+                show: next.showCaptions != previous.showCaptions ? next.showCaptions : nil,
+                settings: settings
+            )
+        }
+
         // Changing the protocol, ports or credentials restarts listening.
-        // The rest (recording, folder, grace) applies without touching the stream.
+        // The rest (recording, folder) applies without touching the stream.
         if next.connection != previous.connection {
             engine.apply(settings)
             return
-        }
-        if next.graceSeconds != previous.graceSeconds {
-            engine.updateGrace(next.graceSeconds)
         }
         if next.folderPath != previous.folderPath {
             engine.updateFolder(next.folderPath)

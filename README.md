@@ -20,11 +20,12 @@ The encoder pushes to the Mac. MediaFlowRX does not pull from a camera.
 - Preview that keeps the source aspect ratio, with mute as the only audio control
 - MP4 remux of the incoming H.264 or HEVC and AAC (no transcode)
 - Record button, or automatic recording when the stream connects
-- If the encoder drops, the same file continues when it returns within the grace period
 - Final file name: `{slug}_yyyy-MM-dd_HH-mm-ss.mp4`
+- If the encoder drops, or sends nothing for 5 seconds, the file is closed. When the stream returns, a new file starts
+- CEA-608 closed captions (CC1) carried in the H.264 or HEVC video, on RTMP, SRT, and RTSP: shown over the preview, and saved as an SRT next to the MP4
 - Interface in English and Italian
 
-Default ports, all editable in Settings: RTMP `1935`, SRT `9000`, RTSP `8554`. Slug and stream key are required. A second publisher is rejected while the first one is on air. The same slug and key may reconnect during the grace period.
+Default ports, all editable in Settings: RTMP `1935`, SRT `9000`, RTSP `8554`. Slug and stream key are required. A second publisher is rejected while the first one is on air.
 
 ## Language
 
@@ -62,13 +63,22 @@ Username and password are optional. When set in Settings, the encoder must send 
 
 Recordings are fragmented MP4: the file is written as the stream comes in, so a crash or power loss costs only the last seconds.
 
+## Closed captions
+
+MediaFlowRX reads CEA-608 captions from the video (the A/53 `GA94` SEI that OBS writes when captions are enabled, as do most broadcast encoders). Only channel CC1 is shown and saved. Info lists every service it finds, CEA-708 included, but 708 is not decoded.
+
+- Settings → General → Show closed captions: whether the window opens with captions on. The CC button, or ⇧⌘C, hides or shows them for the current session only. Text size (75% to 150%) and the opacity of the box behind the text are set there too. Position and colors come from the stream.
+- Settings → Recording → Save closed captions as SRT: next to each MP4, an SRT with the same name (`{slug}_yyyy-MM-dd_HH-mm-ss.srt`), timed on the MP4. No SRT when the recording has no captions.
+
+The MP4 is not altered, so the captions stay in its video too: players that read captions from the video, such as VLC and ffmpeg, show them without the SRT. QuickTime does not: it needs a separate caption track.
+
 ## Build
 
 ```sh
 ./scripts/build-zlm.sh
 ```
 
-The script clones ZLMediaKit into `third_party/` (not part of this repository) at the commit pinned in the script, and builds `libmk_api.dylib`. To try another version: `ZLM_COMMIT=<sha> ./scripts/build-zlm.sh`. Then open `MediaFlowRX.xcodeproj` and run the MediaFlowRX scheme.
+The script clones ZLMediaKit into `third_party/` (not part of this repository) at the commit pinned in the script, and builds `libmk_api.dylib`. It does the same with [libcaption](https://github.com/szatmary/libcaption) (MIT), linked statically for the closed captions. To try another version: `ZLM_COMMIT=<sha> ./scripts/build-zlm.sh`. Then open `MediaFlowRX.xcodeproj` and run the MediaFlowRX scheme.
 
 A disk image:
 

@@ -14,6 +14,14 @@ struct ContentView: View {
         ZStack {
             VideoCanvas(player: engine.preview)
                 .background(.black)
+            if engine.captionsVisible, !engine.captionScreen.isEmpty {
+                CaptionOverlay(
+                    screen: engine.captionScreen,
+                    videoSize: CGSize(width: engine.streamInfo.width, height: engine.streamInfo.height),
+                    scale: settings.captionScale,
+                    backgroundOpacity: settings.captionBackground
+                )
+            }
             if engine.phase == .listening {
                 waitingState
                     .allowsHitTesting(false)
@@ -187,6 +195,18 @@ struct ContentView: View {
             .help(LocalizedStringKey(engine.muted ? "Unmute audio (⇧⌘M)" : "Mute audio (⇧⌘M)"))
 
             Button {
+                engine.captionsVisible.toggle()
+            } label: {
+                Label {
+                    Text(verbatim: "CC")
+                } icon: {
+                    Image(systemName: engine.captionsVisible ? "captions.bubble.fill" : "captions.bubble")
+                }
+            }
+            .tint(engine.captionsVisible ? .white : .orange)
+            .help(LocalizedStringKey(engine.captionsVisible ? "Hide closed captions (⇧⌘C)" : "Show closed captions (⇧⌘C)"))
+
+            Button {
                 engine.toggleRecording()
             } label: {
                 Label(
@@ -218,6 +238,7 @@ struct ContentView: View {
                 infoRow(String(localized: "Frame rate"), info.fps > 0 ? String(localized: "\(info.fps) fps") : "—")
                 infoRow(String(localized: "Bitrate"), bitrateText(info.videoBitrateKbps))
                 infoRow(String(localized: "GOP"), gopText(info.gopMs, frames: info.gopFrames))
+                infoRow(String(localized: "Closed caption"), captionText(info.captions))
             }
             columnDivider
             streamColumn(String(localized: "Audio")) {
@@ -250,6 +271,9 @@ struct ContentView: View {
                 infoRow(String(localized: "Jitter"), info.hasMedia ? "\(info.jitterMs) ms" : "—")
                 if let bytes = info.recordingBytes {
                     infoRow(String(localized: "Recording file"), byteText(bytes))
+                }
+                if let cues = info.captionCues {
+                    infoRow(String(localized: "Caption file"), String(localized: "SRT · \(cues) cues"))
                 }
             }
         }
@@ -326,6 +350,14 @@ struct ContentView: View {
         case 2: String(localized: "Stereo")
         default: String(localized: "\(channels) channels")
         }
+    }
+
+    private func captionText(_ presence: CaptionPresence) -> String {
+        if presence.channels608.isEmpty {
+            return presence.has708 ? String(localized: "708 only · not supported") : "—"
+        }
+        let channels = presence.channels608.map { "CC\($0)" }.joined(separator: ", ")
+        return "608 · \(channels)" + (presence.has708 ? " + 708" : "")
     }
 
     private func gopText(_ ms: Int, frames: Int) -> String {

@@ -285,14 +285,17 @@
 					x86_64,
 				);
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/third_party/ZLMediaKit/api/include";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/third_party/ZLMediaKit/api/include",
+					"$(SRCROOT)/third_party/libcaption/caption",
+				);
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 MazzMat";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 MazzMat. AGPL v3.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Receives streams published on the local network.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -306,10 +309,14 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/third_party/ZLMediaKit/release/darwin/Release";
-				MARKETING_VERSION = 1.0;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/third_party/ZLMediaKit/release/darwin/Release",
+					"$(SRCROOT)/third_party/libcaption/build",
+				);
+				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
 					"-lmk_api",
+					"-lcaption",
 					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
@@ -336,14 +343,17 @@
 					x86_64,
 				);
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/third_party/ZLMediaKit/api/include";
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/third_party/ZLMediaKit/api/include",
+					"$(SRCROOT)/third_party/libcaption/caption",
+				);
 				INFOPLIST_FILE = Info.plist;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 MazzMat";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 MazzMat. AGPL v3.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Receives streams published on the local network.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
@@ -357,10 +367,14 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/third_party/ZLMediaKit/release/darwin/Release";
-				MARKETING_VERSION = 1.0;
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/third_party/ZLMediaKit/release/darwin/Release",
+					"$(SRCROOT)/third_party/libcaption/build",
+				);
+				MARKETING_VERSION = 1.1;
 				OTHER_LDFLAGS = (
 					"-lmk_api",
+					"-lcaption",
 					"-lc++",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";

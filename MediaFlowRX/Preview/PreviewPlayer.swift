@@ -24,6 +24,8 @@ nonisolated struct MediaPacket: Sendable {
     var gopMs: Int32
     /// Arrival time from the engine, in seconds of uptime. Used to measure jitter.
     var arrival: TimeInterval
+    /// Nonzero when the frame reaches the MP4 of that recording.
+    var recordEpoch: UInt32 = 0
 }
 
 nonisolated struct AudioLevel: Equatable, Sendable {
@@ -85,6 +87,8 @@ nonisolated final class PreviewPlayer: @unchecked Sendable {
         var time: TimeInterval = 0
     }
     private let meterState = OSAllocatedUnfairLock(initialState: MeterState())
+    /// The last frame handed to the renderer and the host time it is shown at. Read by the captions.
+    private let shownState = OSAllocatedUnfairLock<(pts: UInt64, host: Double)?>(initialState: nil)
 
     init() {
         var created: CMTimebase?
@@ -144,6 +148,14 @@ nonisolated final class PreviewPlayer: @unchecked Sendable {
         meterState.withLock { Self.level(of: $0, at: now) }
     }
 
+    /// Host time, in seconds, at which the frame with this timestamp is shown. Nil without a picture.
+    func displayTime(forPTS pts: UInt64) -> Double? {
+        guard let shown = shownState.withLock({ $0 }) else { return nil }
+        let offset = Double(Int64(bitPattern: pts) - Int64(bitPattern: shown.pts)) / 1000
+        guard abs(offset) < PlayoutClock.jumpLead else { return nil }
+        return shown.host + offset
+    }
+
     // MARK: - Queue side
 
     private func attachOnQueue(_ renderer: AVSampleBufferVideoRenderer) {
@@ -169,6 +181,7 @@ nonisolated final class PreviewPlayer: @unchecked Sendable {
         audioSpecificConfig = Data()
         knownASC = nil
         meterState.withLock { $0 = MeterState() }
+        shownState.withLock { $0 = nil }
     }
 
     private func consumeOnQueue(_ packet: MediaPacket) {
@@ -273,14 +286,16 @@ nonisolated final class PreviewPlayer: @unchecked Sendable {
             return
         }
         let pts = pendingPTS ?? 0
+        let shownAt = presentationTime(for: pts)
         // No decode time: the layer decodes in enqueue order, which is decode order,
         // and a decode time derived from the presentation clock breaks with B-frames.
         guard let sample = makeSampleBuffer(
             nals: pendingNALs,
             format: formatDescription,
-            pts: presentationTime(for: pts),
+            pts: shownAt,
             duration: frameDuration(endingAt: pts)
         ) else { return }
+        shownState.withLock { $0 = (pts, CMTimeGetSeconds(shownAt)) }
         needsKeyframe = false
         lastVideoPTS = pts
         renderer.enqueue(sample)

@@ -44,21 +44,15 @@
         }
       }
     },
-    "%lld s" : {
+    "708 only · not supported" : {
       "localizations" : {
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld s"
+            "value" : "Solo 708 · non supportato"
           }
         }
       }
-    },
-    "1 s" : {
-
-    },
-    "120 s" : {
-
     },
     "All applied" : {
       "localizations" : {
@@ -104,6 +98,16 @@
         }
       }
     },
+    "Background opacity" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opacità dello sfondo"
+          }
+        }
+      }
+    },
     "Between 1 and 65535" : {
       "localizations" : {
         "it" : {
@@ -133,6 +137,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Annulla"
+          }
+        }
+      }
+    },
+    "Caption file" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File sottotitoli"
+          }
+        }
+      }
+    },
+    "CEA-608 captions (CC1) carried in the video. The CC button in the main window hides or shows them for this session only." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sottotitoli CEA-608 (CC1) trasportati nel video. Il pulsante CC nella finestra principale li nasconde o li mostra solo per questa sessione."
           }
         }
       }
@@ -193,6 +217,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Clicca per copiare: %@"
+          }
+        }
+      }
+    },
+    "Closed caption" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sottotitoli CC"
+          }
+        }
+      }
+    },
+    "Closed captions" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sottotitoli CC"
           }
         }
       }
@@ -324,6 +368,17 @@
         }
       }
     },
+    "Hide closed captions (⇧⌘C)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nascondi i sottotitoli CC (⇧⌘C)"
+          }
+        }
+      }
+    },
     "Hide stream details" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -331,16 +386,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nascondi i dettagli del flusso"
-          }
-        }
-      }
-    },
-    "If the encoder drops, the file stays open for this long. If it returns in time, recording continues." : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se l’encoder cade, il file resta aperto per questo tempo. Se torna in tempo, la registrazione continua."
           }
         }
       }
@@ -358,16 +403,6 @@
     },
     "Info" : {
 
-    },
-    "Interruptions" : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Interruzioni"
-          }
-        }
-      }
     },
     "Invalid characters" : {
       "localizations" : {
@@ -488,6 +523,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Muta o riattiva audio"
+          }
+        }
+      }
+    },
+    "Next to each MP4, a file with the same name and the CC1 captions. The MP4 keeps the captions in the video either way. Applies from the next recording." : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accanto a ogni MP4, un file con lo stesso nome e i sottotitoli CC1. L’MP4 conserva comunque i sottotitoli nel video. Vale dalla prossima registrazione."
           }
         }
       }
@@ -766,6 +811,16 @@
         }
       }
     },
+    "Save closed captions as SRT" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salva i sottotitoli CC in SRT"
+          }
+        }
+      }
+    },
     "Server" : {
 
     },
@@ -780,12 +835,43 @@
         }
       }
     },
+    "Show closed captions" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra i sottotitoli CC"
+          }
+        }
+      }
+    },
+    "Show closed captions (⇧⌘C)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra i sottotitoli CC (⇧⌘C)"
+          }
+        }
+      }
+    },
     "Show in Finder" : {
       "localizations" : {
         "it" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mostra nel Finder"
+          }
+        }
+      }
+    },
+    "Show or hide closed captions" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra o nascondi i sottotitoli CC"
           }
         }
       }
@@ -839,6 +925,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sorgente"
+          }
+        }
+      }
+    },
+    "SRT · %lld cues" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "SRT · %lld cue"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "SRT · %lld cues"
+                }
+              }
+            }
+          }
+        },
+        "it" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "SRT · %lld battuta"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "SRT · %lld battute"
+                }
+              }
+            }
           }
         }
       }
@@ -906,6 +1032,16 @@
         }
       }
     },
+    "Text size" : {
+      "localizations" : {
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dimensione del testo"
+          }
+        }
+      }
+    },
     "The current stream will be interrupted" : {
       "localizations" : {
         "it" : {
@@ -932,16 +1068,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Il più diffuso: OBS e la maggior parte degli encoder. Un solo flusso alla volta."
-          }
-        }
-      }
-    },
-    "Tolerance" : {
-      "localizations" : {
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tolleranza"
           }
         }
       }

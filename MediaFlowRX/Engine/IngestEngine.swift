@@ -1,4 +1,5 @@
 import AppKit
+import CoreMedia
 import Foundation
 
 enum ListenPhase {
@@ -13,7 +14,10 @@ final class IngestEngine {
     private(set) var phase: ListenPhase = .listening
     private(set) var hasSource = false
     private(set) var isRecording = false {
-        didSet { recordingSince = isRecording ? (recordingSince ?? Date()) : nil }
+        didSet {
+            recordingSince = isRecording ? (recordingSince ?? Date()) : nil
+            if oldValue, !isRecording { captions.recordingStopped() }
+        }
     }
     private(set) var recordingSince: Date?
     private(set) var statusText = String(localized: "Listening")
@@ -26,6 +30,13 @@ final class IngestEngine {
     }
     /// Fed straight from the engine thread: frames never wait for the main thread.
     nonisolated let preview = PreviewPlayer()
+    /// Also fed from the engine thread. Decoding goes on while the captions are hidden.
+    nonisolated let captions = CaptionPipeline()
+    /// The CC button. Starts from the preference and changes only this session.
+    var captionsVisible = true
+    private(set) var captionScreen = CaptionScreen()
+    private var captionSequence = 0
+    private var shownCaptionSequence = 0
 
     private var settings: AppSettings?
     private var started = false
@@ -33,7 +44,8 @@ final class IngestEngine {
     private var sessionClosedByTimeout = false
     private var lastFrameAt = Date()
     private var ticker: Timer?
-    private var graceSeconds = 10
+    /// A connected encoder sending nothing for this long closes the file. When data returns, a new file starts.
+    private static let stallSeconds = 5.0
     private var measureStart: Date?
     private var videoBytes = 0
     private var audioBytes = 0
@@ -48,7 +60,6 @@ final class IngestEngine {
 
     func start(_ settings: AppSettings) {
         self.settings = settings
-        graceSeconds = settings.graceSeconds
         if started {
             return
         }
@@ -66,8 +77,68 @@ final class IngestEngine {
         }
         // Only at launch: later, a file still closing could be moved from under the engine.
         Self.recoverInterruptedRecordings(in: settings.recordingFolder)
+        captionsVisible = settings.showCaptions
+        wireCaptions()
+        configureCaptions(settings)
         apply(settings)
         started = true
+    }
+
+    private func wireCaptions() {
+        let preview = preview
+        captions.setDisplayTime { pts in preview.displayTime(forPTS: pts) }
+        captions.onScreen = { [weak self] screen, host in
+            DispatchQueue.main.async { self?.scheduleCaption(screen, at: host) }
+        }
+        captions.onPresence = { [weak self] presence in
+            DispatchQueue.main.async { self?.applyCaptionPresence(presence) }
+        }
+        captions.onCueCount = { [weak self] count in
+            DispatchQueue.main.async { self?.applyCaptionCues(count) }
+        }
+    }
+
+    private func configureCaptions(_ settings: AppSettings) {
+        captions.configure(CaptionPipeline.Configuration(
+            saveSRT: settings.saveCaptions,
+            folder: settings.recordingFolder,
+            slug: settings.slug
+        ))
+    }
+
+    /// Preferences changed. The window follows the new default right away; the SRT applies from the next recording.
+    func updateCaptions(show: Bool?, settings: AppSettings) {
+        if let show { captionsVisible = show }
+        configureCaptions(settings)
+    }
+
+    /// The screen changes when its frame is shown, not when its data arrives.
+    private func scheduleCaption(_ screen: CaptionScreen, at host: Double?) {
+        captionSequence += 1
+        let sequence = captionSequence
+        let delay = host.map { $0 - CMTimeGetSeconds(CMClockGetTime(CMClockGetHostTimeClock())) } ?? 0
+        guard delay > 0.004 else {
+            showCaption(screen, sequence: sequence)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.showCaption(screen, sequence: sequence)
+        }
+    }
+
+    private func showCaption(_ screen: CaptionScreen, sequence: Int) {
+        guard sequence > shownCaptionSequence else { return }
+        shownCaptionSequence = sequence
+        if captionScreen != screen { captionScreen = screen }
+    }
+
+    private func applyCaptionPresence(_ presence: CaptionPresence) {
+        guard hasSource, streamInfo.captions != presence else { return }
+        streamInfo.captions = presence
+    }
+
+    private func applyCaptionCues(_ count: Int?) {
+        if streamInfo.captionCues != count { streamInfo.captionCues = count }
     }
 
     /// A crash leaves the file in progress hidden in the engine's subfolders. Fragmented MP4 keeps it
@@ -119,11 +190,38 @@ final class IngestEngine {
         if (try? manager.contentsOfDirectory(atPath: vhost.path))?.isEmpty == true {
             try? manager.removeItem(at: vhost)
         }
+        recoverInterruptedCaptions(in: root)
+    }
+
+    /// The SRT in progress is hidden (".{slug}_{date}~{epoch}-{slice}.srt") in the recording folder.
+    /// After a crash it becomes `{slug}_{date}_recovered.srt`, next to the recovered MP4.
+    private static func recoverInterruptedCaptions(in root: URL) {
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: root.path) else { return }
+        for name in names where name.hasPrefix(".") && name.hasSuffix(".srt") {
+            let file = root.appending(path: name)
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            if size == 0 {
+                try? manager.removeItem(at: file)
+                continue
+            }
+            var stem = String(name.dropFirst().dropLast(4))
+            if let mark = stem.lastIndex(of: "~") {
+                stem = String(stem[..<mark])
+            }
+            var destination = root.appending(path: "\(stem)_recovered.srt")
+            var number = 2
+            while manager.fileExists(atPath: destination.path) {
+                destination = root.appending(path: "\(stem)_recovered-\(number).srt")
+                number += 1
+            }
+            try? manager.moveItem(at: file, to: destination)
+        }
     }
 
     func apply(_ settings: AppSettings) {
         self.settings = settings
-        graceSeconds = max(1, settings.graceSeconds)
+        configureCaptions(settings)
         if let error = settings.validationError() {
             listenError = error
             statusText = error
@@ -133,7 +231,6 @@ final class IngestEngine {
         var config = mfrx_config()
         config.kind = Int32(settings.kind.rawValue)
         config.port = UInt16(settings.port)
-        config.grace_ms = Int32(graceSeconds * 1000)
         let ctx = Unmanaged.passUnretained(self).toOpaque()
         let result = settings.slug.withCString { slug in
             settings.streamKey.withCString { key in
@@ -166,11 +263,6 @@ final class IngestEngine {
             listenError = message.isEmpty ? String(localized: "Listening did not start") : Self.localizedEngineMessage(message)
             statusText = listenError ?? statusText
         }
-    }
-
-    func updateGrace(_ seconds: Int) {
-        graceSeconds = max(1, seconds)
-        mfrx_set_grace_ms(Int32(graceSeconds * 1000))
     }
 
     func updateFolder(_ path: String) {
@@ -291,7 +383,7 @@ final class IngestEngine {
             }
             return
         }
-        let remain = Double(graceSeconds) - idle
+        let remain = Self.stallSeconds - idle
         if remain <= 0 {
             sessionClosedByTimeout = true
             if isRecording {
@@ -483,6 +575,9 @@ final class IngestEngine {
     }
 
     private func clearStream() {
+        captions.reset()
+        shownCaptionSequence = captionSequence
+        if !captionScreen.isEmpty { captionScreen = CaptionScreen() }
         streamInfo = StreamInfo()
         measureStart = nil
         videoBytes = 0
@@ -528,6 +623,9 @@ struct StreamInfo: Equatable {
     var connectedSince: Date?
     var totalBytes = 0
     var recordingBytes: Int64?
+    var captions = CaptionPresence()
+    /// Cues in the SRT being written, nil when none is.
+    var captionCues: Int?
 
     var hasMedia: Bool {
         width > 0 || sampleRate > 0 || !videoCodec.isEmpty || !audioCodec.isEmpty
@@ -569,23 +667,38 @@ nonisolated func mfrxSwiftOnFrame(_ ctx: UnsafeMutableRawPointer?, _ frame: Unsa
         bitRate: raw.bit_rate,
         sampleBits: raw.sample_bits,
         gopMs: raw.gop_ms,
-        arrival: ProcessInfo.processInfo.systemUptime
+        arrival: ProcessInfo.processInfo.systemUptime,
+        recordEpoch: raw.record_epoch
     )
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
     engine.preview.consume(packet)
+    engine.captions.consume(packet)
     DispatchQueue.main.async {
         engine.applyFrame(packet)
     }
 }
 
 @_cdecl("mfrx_swift_on_file")
-nonisolated func mfrxSwiftOnFile(_ ctx: UnsafeMutableRawPointer?, _ path: UnsafePointer<CChar>?) {
+nonisolated func mfrxSwiftOnFile(_ ctx: UnsafeMutableRawPointer?, _ path: UnsafePointer<CChar>?, _ epoch: UInt32, _ slice: Int32) {
     guard let ctx, let path else { return }
     let file = String(cString: path)
     let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
+    engine.captions.fileStored(file, epoch: epoch, slice: Int(slice))
     DispatchQueue.main.async {
         engine.applyFile(file)
     }
+}
+
+@_cdecl("mfrx_swift_on_slice")
+nonisolated func mfrxSwiftOnSlice(_ ctx: UnsafeMutableRawPointer?, _ epoch: UInt32, _ slice: Int32, _ continuing: Int32, _ durationMs: Int64) {
+    guard let ctx else { return }
+    let engine = Unmanaged<IngestEngine>.fromOpaque(ctx).takeUnretainedValue()
+    engine.captions.sliceClosed(
+        epoch: epoch,
+        slice: Int(slice),
+        continuing: continuing != 0,
+        duration: Double(durationMs) / 1000
+    )
 }
 
 @_cdecl("mfrx_swift_on_error")

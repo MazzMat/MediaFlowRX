@@ -45,3 +45,28 @@ cmake -S "$SRC" -B "$SRC/build" \
 cmake --build "$SRC/build" --target mk_api -j "$(sysctl -n hw.ncpu)"
 install_name_tool -id "@rpath/libmk_api.dylib" "$SRC/release/darwin/Release/libmk_api.dylib"
 echo "libmk_api.dylib pronta"
+
+# libcaption decodifica i closed caption CEA-608. Commit fissato: la build resta riproducibile.
+CAPTION_SRC="$ROOT/third_party/libcaption"
+CAPTION_COMMIT=e8b6261090eb3f2012427cc6b151c923f82453db
+if [ ! -d "$CAPTION_SRC/.git" ]; then
+  mkdir -p "$ROOT/third_party"
+  git clone https://github.com/szatmary/libcaption.git "$CAPTION_SRC"
+fi
+if [ "$(git -C "$CAPTION_SRC" rev-parse HEAD)" != "$CAPTION_COMMIT" ]; then
+  git -C "$CAPTION_SRC" fetch origin
+  git -C "$CAPTION_SRC" checkout --detach "$CAPTION_COMMIT"
+fi
+CAPTION_CACHE="$CAPTION_SRC/build/CMakeCache.txt"
+if [ -f "$CAPTION_CACHE" ] && ! grep -q 'CMAKE_OSX_ARCHITECTURES:STRING=arm64;x86_64' "$CAPTION_CACHE"; then
+  rm -rf "$CAPTION_SRC/build"
+fi
+# Il CMakeLists di libcaption dichiara una versione minima che CMake 4 non accetta più.
+cmake -S "$CAPTION_SRC" -B "$CAPTION_SRC/build" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_EXAMPLES=OFF \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
+cmake --build "$CAPTION_SRC/build" --target caption -j "$(sysctl -n hw.ncpu)"
+echo "libcaption.a pronta"

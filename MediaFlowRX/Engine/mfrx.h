@@ -20,7 +20,6 @@ typedef struct mfrx_config {
     const char *key;
     const char *username;
     const char *password;
-    int grace_ms;
     const char *record_directory;
 } mfrx_config;
 
@@ -42,12 +41,13 @@ typedef struct mfrx_frame {
     int bit_rate;
     int sample_bits;
     int gop_ms;
+    /// Nonzero while recording: the frame reaches the MP4 of that recording. 0 otherwise.
+    uint32_t record_epoch;
 } mfrx_frame;
 
 int mfrx_start(const mfrx_config *config, void *ctx);
 void mfrx_stop(void);
 int mfrx_set_recording(int enabled);
-void mfrx_set_grace_ms(int grace_ms);
 void mfrx_set_record_directory(const char *directory);
 const char *mfrx_last_error(void);
 /// Copies the last publisher IP into dest. Returns 0 when none is known.

@@ -29,6 +29,11 @@ struct MyApp: App {
                     engine.muted.toggle()
                 }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
+
+                Button("Show or hide closed captions") {
+                    engine.captionsVisible.toggle()
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
             }
         }
         Settings {

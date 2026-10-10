@@ -78,14 +78,17 @@ struct ConnectionConfig: Equatable {
 struct SettingsDraft: Equatable {
     var connection = ConnectionConfig()
     var autoRecord = true
-    var graceSeconds = 10
     var folderPath = AppSettings.defaultFolder().path
+    var showCaptions = true
+    var saveCaptions = true
+    var captionScale = 1.0
+    var captionBackground = 0.8
 
     var normalized: SettingsDraft {
         var copy = self
+        copy.captionBackground = min(max(captionBackground, 0), 1)
         copy.connection.slug = connection.slug.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.connection.streamKey = connection.streamKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        copy.graceSeconds = min(max(graceSeconds, 1), 120)
         return copy
     }
 
@@ -123,12 +126,27 @@ final class AppSettings {
     var autoRecord: Bool {
         didSet { defaults.set(autoRecord, forKey: Key.autoRecord) }
     }
-    var graceSeconds: Int {
-        didSet { defaults.set(graceSeconds, forKey: Key.graceSeconds) }
-    }
     var recordingFolderPath: String {
         didSet { defaults.set(recordingFolderPath, forKey: Key.folder) }
     }
+    /// Whether the main window shows closed captions when it opens. The CC button changes only the session.
+    var showCaptions: Bool {
+        didSet { defaults.set(showCaptions, forKey: Key.showCaptions) }
+    }
+    /// Whether each recording gets an SRT with its closed captions.
+    var saveCaptions: Bool {
+        didSet { defaults.set(saveCaptions, forKey: Key.saveCaptions) }
+    }
+    /// Caption text size relative to the television grid, one of `captionScales`.
+    var captionScale: Double {
+        didSet { defaults.set(captionScale, forKey: Key.captionScale) }
+    }
+    /// Opacity of the box behind the caption text, 0...1.
+    var captionBackground: Double {
+        didSet { defaults.set(captionBackground, forKey: Key.captionBackground) }
+    }
+
+    static let captionScales = [0.75, 1, 1.25, 1.5]
 
     var connection: ConnectionConfig {
         ConnectionConfig(
@@ -147,8 +165,11 @@ final class AppSettings {
         SettingsDraft(
             connection: connection,
             autoRecord: autoRecord,
-            graceSeconds: graceSeconds,
-            folderPath: recordingFolderPath
+            folderPath: recordingFolderPath,
+            showCaptions: showCaptions,
+            saveCaptions: saveCaptions,
+            captionScale: captionScale,
+            captionBackground: captionBackground
         )
     }
 
@@ -187,8 +208,13 @@ final class AppSettings {
         username = defaults.string(forKey: Key.username) ?? ""
         password = defaults.string(forKey: Key.password) ?? ""
         autoRecord = defaults.object(forKey: Key.autoRecord) as? Bool ?? true
-        graceSeconds = defaults.object(forKey: Key.graceSeconds) as? Int ?? 10
         recordingFolderPath = defaults.string(forKey: Key.folder) ?? Self.defaultFolder().path
+        showCaptions = defaults.object(forKey: Key.showCaptions) == nil || defaults.bool(forKey: Key.showCaptions)
+        saveCaptions = defaults.object(forKey: Key.saveCaptions) == nil || defaults.bool(forKey: Key.saveCaptions)
+        let scale = defaults.double(forKey: Key.captionScale)
+        captionScale = Self.captionScales.contains(scale) ? scale : 1
+        captionBackground = defaults.object(forKey: Key.captionBackground) == nil
+            ? 0.8 : min(max(defaults.double(forKey: Key.captionBackground), 0), 1)
         try? FileManager.default.createDirectory(at: recordingFolder, withIntermediateDirectories: true)
     }
 
@@ -209,8 +235,11 @@ final class AppSettings {
         username = value.connection.username
         password = value.connection.password
         autoRecord = value.autoRecord
-        graceSeconds = value.graceSeconds
         recordingFolderPath = value.folderPath
+        showCaptions = value.showCaptions
+        saveCaptions = value.saveCaptions
+        captionScale = value.captionScale
+        captionBackground = value.captionBackground
         try? FileManager.default.createDirectory(at: recordingFolder, withIntermediateDirectories: true)
     }
 
@@ -228,7 +257,10 @@ final class AppSettings {
         static let username = "ingest.username"
         static let password = "ingest.password"
         static let autoRecord = "record.auto"
-        static let graceSeconds = "record.grace"
         static let folder = "record.folder"
+        static let showCaptions = "captions.show"
+        static let saveCaptions = "captions.srt"
+        static let captionScale = "captions.scale"
+        static let captionBackground = "captions.background"
     }
 }

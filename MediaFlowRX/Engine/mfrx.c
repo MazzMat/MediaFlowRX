@@ -40,10 +40,16 @@ static int64_t g_last_frame_ms = 0;
 /// have begun, so each file finds its own name and folder through its start time.
 typedef struct {
     uint64_t started;
+    uint32_t epoch;
     int slice;
     char directory[1024];
     char base[512];
 } RecordSession;
+
+/// Frames carry the epoch of the recording they reach, and so does the closed file.
+/// The captions file of a recording is paired with its MP4 through it.
+static atomic_uint g_record_epoch = 0;
+static uint32_t g_last_epoch = 0;
 
 #define MFRX_MAX_SESSIONS 8
 static RecordSession g_sessions[MFRX_MAX_SESSIONS];
@@ -64,7 +70,10 @@ static void *g_ctx = NULL;
 
 extern void mfrx_swift_on_state(void *ctx, int state);
 extern void mfrx_swift_on_frame(void *ctx, const mfrx_frame *frame);
-extern void mfrx_swift_on_file(void *ctx, const char *path);
+extern void mfrx_swift_on_file(void *ctx, const char *path, uint32_t epoch, int slice);
+/// When the engine closes a file, before it is moved. `continuing` when the recording goes on in the next slice.
+/// `duration_ms` is the length of the file on its own timeline.
+extern void mfrx_swift_on_slice(void *ctx, uint32_t epoch, int slice, int continuing, int64_t duration_ms);
 extern void mfrx_swift_on_error(void *ctx, const char *message);
 
 static int64_t now_ms(void) {
@@ -178,13 +187,9 @@ static void option_set(const char *key, const char *value) {
     }
 }
 
-static void apply_options_with_grace(int grace_ms) {
-    char grace[32];
-    if (grace_ms < 0) {
-        grace_ms = 0;
-    }
-    snprintf(grace, sizeof(grace), "%d", grace_ms);
-    option_set("protocol.continue_push_ms", grace);
+static void apply_options(void) {
+    // A publisher that drops is gone: its return starts a new source and a new file.
+    option_set("protocol.continue_push_ms", "0");
     option_set("protocol.modify_stamp", "0");
     option_set("protocol.enable_audio", "1");
     option_set("protocol.add_mute_audio", "0");
@@ -290,6 +295,7 @@ typedef struct {
     char stem[512];
     char cleanup[1024];
     int first;
+    uint32_t epoch;
     void *ctx;
 } MoveJob;
 
@@ -304,13 +310,13 @@ static void *move_across_volumes(void *arg) {
         result = dest;
     }
     if (job->ctx) {
-        mfrx_swift_on_file(job->ctx, result);
+        mfrx_swift_on_file(job->ctx, result, job->epoch, job->first);
     }
     free(job);
     return NULL;
 }
 
-static int start_move_job(const char *src, const char *directory, const char *stem, const char *cleanup, int first, void *ctx) {
+static int start_move_job(const char *src, const char *directory, const char *stem, const char *cleanup, int first, uint32_t epoch, void *ctx) {
     MoveJob *job = calloc(1, sizeof(MoveJob));
     if (!job) {
         return 0;
@@ -320,6 +326,7 @@ static int start_move_job(const char *src, const char *directory, const char *st
     copy_text(job->stem, sizeof(job->stem), stem);
     copy_text(job->cleanup, sizeof(job->cleanup), cleanup);
     job->first = first;
+    job->epoch = epoch;
     job->ctx = ctx;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
@@ -349,7 +356,7 @@ static RecordSession *session_for(uint64_t file_started) {
 }
 
 /// Caller holds g_mu.
-static void push_session(const char *directory) {
+static void push_session(const char *directory, uint32_t epoch) {
     if (g_session_count == MFRX_MAX_SESSIONS) {
         memmove(&g_sessions[0], &g_sessions[1], sizeof(RecordSession) * (MFRX_MAX_SESSIONS - 1));
         g_session_count -= 1;
@@ -361,6 +368,7 @@ static void push_session(const char *directory) {
     char when[64];
     strftime(when, sizeof(when), "%Y-%m-%d_%H-%M-%S", &tm);
     session->started = (uint64_t)now;
+    session->epoch = epoch;
     session->slice = 0;
     copy_text(session->directory, sizeof(session->directory), directory);
     snprintf(session->base, sizeof(session->base), "%s_%s.mp4", g_slug, when);
@@ -376,6 +384,7 @@ static void on_record(const mk_record_info info) {
     char app[256];
     char stream[256];
     int number = 1;
+    uint32_t epoch = 0;
     void *ctx = NULL;
     stem[0] = '\0';
     cleanup[0] = '\0';
@@ -387,6 +396,7 @@ static void on_record(const mk_record_info info) {
         copy_text(cleanup, sizeof(cleanup), session->directory);
         session->slice += 1;
         number = session->slice;
+        epoch = session->epoch;
     }
     ctx = g_ctx;
     if (g_record_pending > 0) {
@@ -401,6 +411,11 @@ static void on_record(const mk_record_info info) {
         pthread_mutex_lock(&g_mu);
         g_recording = 0;
         pthread_mutex_unlock(&g_mu);
+        atomic_store(&g_record_epoch, 0);
+    }
+    if (ctx && epoch != 0) {
+        int64_t duration_ms = (int64_t)(mk_record_info_get_time_len(info) * 1000.0f + 0.5f);
+        mfrx_swift_on_slice(ctx, epoch, number, atomic_load(&g_record_epoch) == epoch, duration_ms);
     }
     if (!src || src[0] == '\0') {
         return;
@@ -411,14 +426,14 @@ static void on_record(const mk_record_info info) {
         int moved = move_exclusive(src, directory, stem, number, dest, sizeof(dest));
         if (moved == 0) {
             remove_empty_parents(src, cleanup);
-        } else if (moved == EXDEV && start_move_job(src, directory, stem, cleanup, number, ctx)) {
+        } else if (moved == EXDEV && start_move_job(src, directory, stem, cleanup, number, epoch, ctx)) {
             return;
         } else {
             copy_text(dest, sizeof(dest), src);
         }
     }
     if (ctx) {
-        mfrx_swift_on_file(ctx, dest);
+        mfrx_swift_on_file(ctx, dest, epoch, number);
     }
 }
 
@@ -463,6 +478,7 @@ static void on_frame(void *user_data, mk_frame frame) {
     out.size = mk_frame_get_data_size(frame);
     out.pts_ms = mk_frame_get_pts(frame);
     out.dts_ms = mk_frame_get_dts(frame);
+    out.record_epoch = atomic_load(&g_record_epoch);
     if (track->track) {
         out.bit_rate = mk_track_bit_rate(track->track);
         if (track->is_video) {
@@ -672,6 +688,7 @@ static void stop_recording(int wait) {
     char vhost[256];
     char app[256];
     char stream[256];
+    atomic_store(&g_record_epoch, 0);
     pthread_mutex_lock(&g_mu);
     g_recording = 0;
     copy_text(vhost, sizeof(vhost), g_vhost);
@@ -721,17 +738,6 @@ int mfrx_copy_publisher(char *dest, size_t dest_len) {
     return dest[0] != '\0';
 }
 
-void mfrx_set_grace_ms(int grace_ms) {
-    if (grace_ms < 0) {
-        grace_ms = 0;
-    }
-    if (g_inited) {
-        char grace[32];
-        snprintf(grace, sizeof(grace), "%d", grace_ms);
-        option_set("protocol.continue_push_ms", grace);
-    }
-}
-
 void mfrx_set_record_directory(const char *directory) {
     pthread_mutex_lock(&g_mu);
     copy_text(g_record_dir, sizeof(g_record_dir), directory);
@@ -755,8 +761,13 @@ int mfrx_set_recording(int enabled) {
     copy_text(app, sizeof(app), g_app);
     copy_text(stream, sizeof(stream), g_stream);
     copy_text(directory, sizeof(directory), g_record_dir);
+    uint32_t epoch = 0;
     if (have_source && !already) {
-        push_session(directory);
+        epoch = ++g_last_epoch;
+        if (epoch == 0) {
+            epoch = ++g_last_epoch;
+        }
+        push_session(directory, epoch);
     }
     pthread_mutex_unlock(&g_mu);
     if (!have_source) {
@@ -774,6 +785,8 @@ int mfrx_set_recording(int enabled) {
             directory[len + 1] = '\0';
         }
     }
+    // Set before the recorder exists: frames delivered after it do reach the file.
+    atomic_store(&g_record_epoch, epoch);
     int started = mk_recorder_start(1, vhost, app, stream, directory, 86400);
     pthread_mutex_lock(&g_mu);
     if (started) {
@@ -783,6 +796,7 @@ int mfrx_set_recording(int enabled) {
     }
     pthread_mutex_unlock(&g_mu);
     if (!started) {
+        atomic_store(&g_record_epoch, 0);
         set_error("Recording did not start");
         return 0;
     }
@@ -839,8 +853,7 @@ int mfrx_start(const mfrx_config *config, void *ctx) {
         install_events();
         g_inited = 1;
     }
-    int grace_ms = config->grace_ms > 0 ? config->grace_ms : 10000;
-    apply_options_with_grace(grace_ms);
+    apply_options();
     uint16_t bound = 0;
     if (config->kind == MFRX_KIND_SRT) {
         bound = mk_srt_server_start(config->port);
